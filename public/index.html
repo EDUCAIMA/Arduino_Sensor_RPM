@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RPM IoT Monitor — Dashboard</title>
+  <meta name="description" content="Dashboard de monitoreo de RPM en tiempo real con IoT, MQTT y gráficos históricos.">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- ============================================ -->
+  <!--  SIDEBAR NAVIGATION                          -->
+  <!-- ============================================ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>
+        </div>
+        <div class="logo-text">
+          <span class="logo-title">RPM IoT</span>
+          <span class="logo-sub">Monitor v1.0</span>
+        </div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-page="dashboard" id="nav-dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7" rx="1"/>
+          <rect x="14" y="3" width="7" height="7" rx="1"/>
+          <rect x="3" y="14" width="7" height="7" rx="1"/>
+          <rect x="14" y="14" width="7" height="7" rx="1"/>
+        </svg>
+        <span>Dashboard</span>
+      </a>
+      <a href="#" class="nav-item" data-page="procesos" id="nav-procesos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+        <span>Procesos</span>
+      </a>
+      <a href="#" class="nav-item" data-page="historico" id="nav-historico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        <span>Histórico</span>
+      </a>
+      <a href="#" class="nav-item" data-page="dispositivos" id="nav-dispositivos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="4" y="4" width="16" height="16" rx="2"/>
+          <rect x="9" y="9" width="6" height="6"/>
+          <line x1="9" y1="1" x2="9" y2="4"/>
+          <line x1="15" y1="1" x2="15" y2="4"/>
+          <line x1="9" y1="20" x2="9" y2="23"/>
+          <line x1="15" y1="20" x2="15" y2="23"/>
+          <line x1="20" y1="9" x2="23" y2="9"/>
+          <line x1="20" y1="14" x2="23" y2="14"/>
+          <line x1="1" y1="9" x2="4" y2="9"/>
+          <line x1="1" y1="14" x2="4" y2="14"/>
+        </svg>
+        <span>Dispositivos</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="connection-status" id="connectionStatus">
+        <div class="status-dot offline"></div>
+        <span>Desconectado</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============================================ -->
+  <!--  MAIN CONTENT                                -->
+  <!-- ============================================ -->
+  <main class="main-content">
+    <!-- HEADER -->
+    <header class="top-bar">
+      <button class="menu-toggle" id="menuToggle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="3" y1="12" x2="21" y2="12"/>
+          <line x1="3" y1="6" x2="21" y2="6"/>
+          <line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
+      <div class="top-bar-info">
+        <h1 class="page-title" id="pageTitle">Dashboard</h1>
+        <span class="page-subtitle" id="pageSubtitle">Monitoreo en tiempo real</span>
+      </div>
+      <div class="top-bar-actions">
+        <div class="live-rpm-badge" id="liveRpmBadge">
+          <div class="pulse-ring"></div>
+          <span class="live-rpm-value" id="liveRpmValue">0</span>
+          <span class="live-rpm-unit">RPM</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ============================================ -->
+    <!--  PAGE: DASHBOARD                             -->
+    <!-- ============================================ -->
+    <section class="page active" id="page-dashboard">
+      <!-- Stat Cards -->
+      <div class="stats-grid">
+        <div class="stat-card stat-rpm">
+          <div class="stat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v6l4 2"/>
+            </svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">RPM Actual</span>
+            <span class="stat-value" id="statRpm">0</span>
+          </div>
+          <div class="stat-trend up" id="statRpmTrend">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="stat-card stat-pulses">
+          <div class="stat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Pulsos/seg</span>
+            <span class="stat-value" id="statPulsos">0</span>
+          </div>
+        </div>
+
+        <div class="stat-card stat-process">
+          <div class="stat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Proceso Activo</span>
+            <span class="stat-value stat-value-sm" id="statProceso">Ninguno</span>
+          </div>
+        </div>
+
+        <div class="stat-card stat-uptime">
+          <div class="stat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Uptime Sensor</span>
+            <span class="stat-value stat-value-sm" id="statUptime">0s</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- RPM Gauge -->
+      <div class="dashboard-grid">
+        <div class="card gauge-card">
+          <div class="card-header">
+            <h3>Velocímetro RPM</h3>
+            <div class="card-badge live">EN VIVO</div>
+          </div>
+          <div class="gauge-container">
+            <canvas id="gaugeCanvas" width="320" height="200"></canvas>
+            <div class="gauge-value" id="gaugeValue">0</div>
+            <div class="gauge-label">RPM</div>
+          </div>
+        </div>
+
+        <!-- Real-time Chart -->
+        <div class="card chart-card">
+          <div class="card-header">
+            <h3>RPM en Tiempo Real</h3>
+            <div class="card-actions">
+              <span class="readings-count" id="readingsCount">0 lecturas</span>
+            </div>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="realtimeChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity Log -->
+      <div class="card activity-card">
+        <div class="card-header">
+          <h3>Actividad Reciente</h3>
+          <button class="btn btn-ghost btn-sm" id="clearLog">Limpiar</button>
+        </div>
+        <div class="activity-log" id="activityLog">
+          <div class="activity-item info">
+            <span class="activity-time">--:--:--</span>
+            <span class="activity-msg">Esperando conexión con el sensor...</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!--  PAGE: PROCESOS                              -->
+    <!-- ============================================ -->
+    <section class="page" id="page-procesos">
+      <div class="page-actions">
+        <button class="btn btn-primary" id="btnNuevoProceso">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Nuevo Proceso
+        </button>
+      </div>
+
+      <!-- Active Process Banner -->
+      <div class="active-process-banner" id="activeProcessBanner" style="display:none;">
+        <div class="apb-info">
+          <div class="apb-status">
+            <div class="pulse-dot"></div>
+            <span>PROCESO ACTIVO</span>
+          </div>
+          <h3 id="apbName">—</h3>
+          <p id="apbDesc">—</p>
+          <div class="apb-meta">
+            <span id="apbInicio">Inicio: —</span>
+            <span id="apbLecturas">Lecturas: 0</span>
+            <span id="apbRpmAvg">RPM Prom: 0</span>
+          </div>
+        </div>
+        <div class="apb-actions">
+          <button class="btn btn-warning" id="btnPausarProceso">Pausar</button>
+          <button class="btn btn-danger" id="btnFinalizarProceso">Finalizar</button>
+        </div>
+      </div>
+
+      <!-- Process List -->
+      <div class="card">
+        <div class="card-header">
+          <h3>Historial de Procesos</h3>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table" id="procesosTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Nombre</th>
+                <th>Estado</th>
+                <th>Fecha Inicio</th>
+                <th>Fecha Fin</th>
+                <th>RPM Prom</th>
+                <th>RPM Max</th>
+                <th>Lecturas</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="procesosBody">
+              <tr>
+                <td colspan="9" class="empty-state">Cargando procesos...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!--  PAGE: HISTORICO                             -->
+    <!-- ============================================ -->
+    <section class="page" id="page-historico">
+      <div class="page-actions">
+        <div class="select-group">
+          <label for="histProcessSelect">Proceso:</label>
+          <select id="histProcessSelect" class="select-input">
+            <option value="">— Seleccionar proceso —</option>
+          </select>
+        </div>
+        <div class="select-group">
+          <label for="histInterval">Intervalo:</label>
+          <select id="histInterval" class="select-input">
+            <option value="second">Segundos</option>
+            <option value="minute" selected>Minutos</option>
+            <option value="hour">Horas</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="btnLoadHist">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="1 4 1 10 7 10"/>
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+          </svg>
+          Cargar
+        </button>
+      </div>
+
+      <!-- Stats summary -->
+      <div class="stats-grid stats-grid-sm" id="histStats" style="display:none;">
+        <div class="stat-card mini">
+          <span class="stat-label">Promedio</span>
+          <span class="stat-value" id="histAvg">0</span>
+        </div>
+        <div class="stat-card mini">
+          <span class="stat-label">Máximo</span>
+          <span class="stat-value" id="histMax">0</span>
+        </div>
+        <div class="stat-card mini">
+          <span class="stat-label">Mínimo</span>
+          <span class="stat-value" id="histMin">0</span>
+        </div>
+        <div class="stat-card mini">
+          <span class="stat-label">Desviación</span>
+          <span class="stat-value" id="histStd">0</span>
+        </div>
+        <div class="stat-card mini">
+          <span class="stat-label">Total Lecturas</span>
+          <span class="stat-value" id="histTotal">0</span>
+        </div>
+        <div class="stat-card mini">
+          <span class="stat-label">Duración</span>
+          <span class="stat-value stat-value-sm" id="histDuration">—</span>
+        </div>
+      </div>
+
+      <!-- Historical Charts -->
+      <div class="dashboard-grid">
+        <div class="card chart-card chart-full">
+          <div class="card-header">
+            <h3>Gráfico Histórico de RPM</h3>
+          </div>
+          <div class="chart-wrapper chart-wrapper-lg">
+            <canvas id="histChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <div class="card chart-card">
+          <div class="card-header">
+            <h3>Distribución RPM (Max / Min / Avg)</h3>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="histBarChart"></canvas>
+          </div>
+        </div>
+        <div class="card chart-card">
+          <div class="card-header">
+            <h3>Lecturas por Periodo</h3>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="histDoughnutChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!--  PAGE: DISPOSITIVOS                          -->
+    <!-- ============================================ -->
+    <section class="page" id="page-dispositivos">
+      <div class="card">
+        <div class="card-header">
+          <h3>Sensores Registrados</h3>
+        </div>
+        <div class="devices-grid" id="devicesGrid">
+          <div class="empty-state">Cargando dispositivos...</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============================================ -->
+  <!--  MODAL: Nuevo Proceso                        -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modalNuevoProceso">
+      <div class="modal-header">
+        <h3>Nuevo Proceso de Medición</h3>
+        <button class="modal-close" id="modalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="procNombre">Nombre del Proceso *</label>
+          <input type="text" id="procNombre" class="form-input" placeholder="Ej: Motor Bomba #3 - Prueba de carga">
+        </div>
+        <div class="form-group">
+          <label for="procDescripcion">Descripción</label>
+          <textarea id="procDescripcion" class="form-input" rows="3" placeholder="Descripción detallada del proceso de medición..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="modalCancel">Cancelar</button>
+        <button class="btn btn-primary" id="modalCreate">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          Crear Proceso
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
