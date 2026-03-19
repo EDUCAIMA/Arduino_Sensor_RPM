@@ -291,8 +291,9 @@ function updateRPMDisplay(data) {
     document.getElementById('statProceso').textContent = `#${data.procesoId}`;
   }
 
-  // Update target gauge value for smooth animation
+  // Update target gauge value and trigger animation
   window.targetGaugeRPM = rpm;
+  if (window.startGaugeAnimation) window.startGaugeAnimation();
 
   // Update realtime chart
   addRealtimeData(rpm, data.timestamp || new Date().toISOString());
@@ -335,17 +336,28 @@ function initGauge() {
   const canvas = document.getElementById('gaugeCanvas');
   gaugeCtx = canvas.getContext('2d');
   
-  // Iniciar loop de animación fluida
+  // Dibujar estado inicial inmediatamente
+  drawGauge(0);
+  
+  // Iniciar loop de animación fluida (solo redibuja si hay movimiento para ahorrar CPU)
   function animate() {
     const diff = window.targetGaugeRPM - window.currentGaugeRPM;
-    if (Math.abs(diff) > 0.05) {
-      window.currentGaugeRPM += diff * 0.12; // Velocidad de suavizado
+    if (Math.abs(diff) > 0.01) {
+      window.currentGaugeRPM += diff * 0.08; // Suavizado más fluido
       drawGauge(window.currentGaugeRPM);
+      requestAnimationFrame(animate);
+    } else {
+      // Si el valor es estable, dejar de animar hasta nuevo aviso
+      window.gaugeAnimating = false;
     }
-    requestAnimationFrame(animate);
   }
   
-  animate();
+  window.startGaugeAnimation = () => {
+    if (!window.gaugeAnimating) {
+      window.gaugeAnimating = true;
+      requestAnimationFrame(animate);
+    }
+  };
 }
 
 function drawGauge(rpm) {
@@ -353,13 +365,13 @@ function drawGauge(rpm) {
   const w = canvas.width;
   const h = canvas.height;
   const cx = w / 2;
-  const cy = h - 25;
-  const r = Math.min(w, h) * 0.72 - 20;
+  const cy = h * 0.65; // Centrar verticalmente mejor
+  const r = Math.min(w, h) * 0.5;
 
   gaugeCtx.clearRect(0, 0, w, h);
 
-  const startAngle = 0.82 * Math.PI;
-  const endAngle = 2.18 * Math.PI;
+  const startAngle = 0.78 * Math.PI;
+  const endAngle = 2.22 * Math.PI;
   const totalAngle = endAngle - startAngle;
   const rpmRatio = Math.min(rpm, GAUGE_MAX) / GAUGE_MAX;
   const valueAngle = startAngle + rpmRatio * totalAngle;
@@ -385,14 +397,16 @@ function drawGauge(rpm) {
   gaugeCtx.strokeStyle = 'rgba(239, 68, 68, 0.2)';
   gaugeCtx.stroke();
 
-  // 3. Ticks y Escala Mejorada
-  for (let i = 0; i <= 12; i++) {
-    const tickRpm = i * 500;
+  // 3. Ticks y Escala Detallada
+  for (let i = 0; i <= 24; i++) {
+    const tickRpm = i * 250;
     const angle = startAngle + (tickRpm / GAUGE_MAX) * totalAngle;
     
-    // Ticks principales cada 1000, secundarios cada 500
-    const isMajor = i % 2 === 0;
-    const tLen = isMajor ? 14 : 7;
+    // Ticks principales (1000), secundarios (500) y de detalle (250)
+    const isMajor = i % 4 === 0;
+    const isInter = i % 2 === 0;
+    const tLen = isMajor ? 16 : (isInter ? 10 : 5);
+    
     const x1 = cx + (r - 2) * Math.cos(angle);
     const y1 = cy + (r - 2) * Math.sin(angle);
     const x2 = cx + (r - 2 - tLen) * Math.cos(angle);
@@ -401,16 +415,16 @@ function drawGauge(rpm) {
     gaugeCtx.beginPath();
     gaugeCtx.moveTo(x1, y1);
     gaugeCtx.lineTo(x2, y2);
-    gaugeCtx.lineWidth = isMajor ? 2.5 : 1.2;
+    gaugeCtx.lineWidth = isMajor ? 3 : (isInter ? 1.5 : 1);
     gaugeCtx.strokeStyle = tickRpm >= 5000 ? 'rgba(239, 68, 68, 0.6)' : 'rgba(0, 0, 0, 0.2)';
     gaugeCtx.stroke();
 
     // Labels cada 1000
     if (isMajor) {
-      const lx = cx + (r - 35) * Math.cos(angle);
-      const ly = cy + (r - 35) * Math.sin(angle);
-      gaugeCtx.fillStyle = tickRpm >= 5000 ? 'rgba(239, 68, 68, 0.8)' : 'rgba(0, 0, 0, 0.5)';
-      gaugeCtx.font = `bold 11px var(--font-mono)`;
+      const lx = cx + (r - 38) * Math.cos(angle);
+      const ly = cy + (r - 38) * Math.sin(angle);
+      gaugeCtx.fillStyle = tickRpm >= 5000 ? 'rgba(239, 68, 68, 0.8)' : 'rgba(0, 0, 0, 0.6)';
+      gaugeCtx.font = `bold 12px var(--font-mono)`;
       gaugeCtx.textAlign = 'center';
       gaugeCtx.textBaseline = 'middle';
       gaugeCtx.fillText(`${tickRpm / 1000}`, lx, ly);
