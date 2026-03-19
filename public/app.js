@@ -630,6 +630,15 @@ async function loadProcesos() {
               <button class="btn btn-sm btn-ghost" onclick="verHistorico(${p.id})">Ver Gráficos</button>
               <button class="btn btn-sm btn-danger" onclick="eliminarProceso(${p.id}, '${escapeHtml(p.nombre)}')">Eliminar</button>
             ` : ''}
+            <button class="btn btn-sm btn-pdf" onclick="exportPdfProceso(${p.id})" title="Exportar reporte PDF">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="12" y1="18" x2="12" y2="12"/>
+                <polyline points="9 15 12 18 15 15"/>
+              </svg>
+              PDF
+            </button>
           </div>
         </td>
       </tr>
@@ -718,6 +727,11 @@ function initHistorico() {
   if (btnLoad) {
     btnLoad.addEventListener('click', triggerLoad);
   }
+
+  const btnPdf = document.getElementById('btnExportPdf');
+  if (btnPdf) {
+    btnPdf.onclick = () => exportCurrentHistoricoPdf();
+  }
 }
 
 async function loadProcesoSelect() {
@@ -763,6 +777,12 @@ async function loadHistorico(procesoId) {
       document.getElementById('histDuration').textContent = formatDuration(diffMs);
     }
 
+    // Análisis Automático
+    const analysis = generateAutomaticAnalysis(stats);
+    document.getElementById('histAnalysisCard').style.display = 'block';
+    document.getElementById('histAnalysisContent').innerHTML = analysis.html;
+    state.currentAnalysis = analysis.text; // Guardar para PDF
+
     // Load chart data
     const chartRes = await fetch(`${API}/api/lecturas/${procesoId}/chart?interval=${interval}`);
     const chartData = await chartRes.json();
@@ -770,6 +790,9 @@ async function loadHistorico(procesoId) {
     renderHistChart(chartData);
     renderHistBarChart(chartData);
     renderHistDoughnutChart(chartData);
+
+    // Show PDF button
+    document.getElementById('btnExportPdf').style.display = 'inline-flex';
   } catch (err) {
     console.error('Error loading historico:', err);
     alert('Error cargando datos históricos');
@@ -989,6 +1012,266 @@ function renderHistDoughnutChart(data) {
       }
     }
   });
+}
+
+// ============================================================
+//  PDF GENERATION
+// ============================================================
+window.exportPdfProceso = async function(id) {
+  // If we are already on the historic page with this ID, just export
+  const currentId = document.getElementById('histProcessSelect').value;
+  if (currentId == id && document.getElementById('page-historico').classList.contains('active')) {
+    return exportCurrentHistoricoPdf();
+  }
+
+  // Otherwise, we need to load it first. For simplicity and consistent graphs, 
+  // we redirect to historico and auto-trigger after load.
+  verHistorico(id);
+  setTimeout(() => {
+    const checkLoaded = setInterval(() => {
+      if (document.getElementById('histStats').style.display !== 'none') {
+        const histId = document.getElementById('histProcessSelect').value;
+        if (histId == id) {
+          clearInterval(checkLoaded);
+          exportCurrentHistoricoPdf();
+        }
+      }
+    }, 500);
+    // Timeout after 10s
+    setTimeout(() => clearInterval(checkLoaded), 10000);
+  }, 200);
+};
+
+async function exportCurrentHistoricoPdf() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const procId = document.getElementById('histProcessSelect').value;
+  const select = document.getElementById('histProcessSelect');
+  const procText = select.options[select.selectedIndex].text;
+  
+  const btn = document.getElementById('btnExportPdf');
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = '<span>Generando...</span>';
+  btn.disabled = true;
+
+  try {
+    // 0. Get Logo Base64
+    const logoBase64 = await getImageBase64('corhuila-logo.png');
+
+    // 1. Header (Institutional)
+    doc.setFillColor(0, 132, 61); // Corhuila Green
+    doc.rect(0, 0, 210, 42, 'F');
+    
+    // Add Logo
+    if (logoBase64) {
+      doc.addImage(logoBase64, 'PNG', 15, 8, 25, 25);
+    }
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(20);
+    doc.setFont('helvetica', 'bold');
+    doc.text('REPORTE DE MONITOREO RPM', 115, 18, { align: 'center' });
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('CORPORACIÓN UNIVERSITARIA DEL HUILA — CORHUILA', 115, 27, { align: 'center' });
+    doc.text('FACULTAD DE INGENIERÍA — SEDE PITALITO', 115, 33, { align: 'center' });
+    
+    // 2. Process Info
+    doc.setTextColor(15, 23, 42); // Dark slate
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Detalles del Proceso', 20, 58);
+    doc.setDrawColor(0, 132, 61);
+    doc.setLineWidth(0.5);
+    doc.line(20, 60, 70, 60);
+
+    doc.setFontSize(10);
+    doc.text('Proceso:', 20, 71);
+    doc.setFont('helvetica', 'normal');
+    doc.text(procText, 55, 71);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('ID:', 20, 78);
+    doc.setFont('helvetica', 'normal');
+    doc.text('#' + procId, 55, 78);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Fecha Reporte:', 20, 85);
+    doc.setFont('helvetica', 'normal');
+    doc.text(new Date().toLocaleString(), 55, 85);
+
+    // 3. Stats Summary
+    const avg = document.getElementById('histAvg').textContent;
+    const max = document.getElementById('histMax').textContent;
+    const min = document.getElementById('histMin').textContent;
+    const total = document.getElementById('histTotal').textContent;
+    const duration = document.getElementById('histDuration').textContent;
+    const std = document.getElementById('histStd').textContent;
+
+    doc.setDrawColor(220, 220, 220);
+    doc.setFillColor(248, 252, 250);
+    doc.roundedRect(15, 95, 180, 45, 3, 3, 'FD');
+    
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 132, 61);
+    doc.text('RESUMEN ESTADÍSTICO', 105, 103, { align: 'center' });
+
+    doc.setFontSize(9);
+    doc.setTextColor(50, 55, 65);
+    doc.text('RPM Promedio:', 25, 115); doc.text(avg + ' RPM', 65, 115);
+    doc.text('RPM Máximo:', 25, 123);    doc.text(max + ' RPM', 65, 123);
+    doc.text('RPM Mínimo:', 25, 131);    doc.text(min + ' RPM', 65, 131);
+
+    doc.text('Total Lecturas:', 110, 115); doc.text(total, 155, 115);
+    doc.text('Duración:', 110, 123);      doc.text(duration, 155, 123);
+    doc.text('Desviación:', 110, 131);    doc.text(std, 155, 131);
+
+    // 3.5 Automatic Analysis Text
+    if (state.currentAnalysis) {
+      doc.setFontSize(11);
+      doc.setTextColor(0, 100, 45); // Darker green
+      doc.text('ANÁLISIS DE OPERACIÓN:', 20, 150);
+      
+      doc.setFontSize(9);
+      doc.setTextColor(40, 45, 55);
+      doc.setFont('helvetica', 'italic');
+      
+      const splitAnalysis = doc.splitTextToSize(state.currentAnalysis, 170);
+      doc.text(splitAnalysis, 20, 158);
+    }
+
+    // 4. Capture Charts
+    doc.setFontSize(14);
+    doc.setTextColor(15, 23, 42);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Análisis de Tendencia (Línea)', 20, 195);
+    doc.line(20, 197, 90, 197);
+
+    // Main Chart - Proportional
+    const histCanvas = document.getElementById('histChart');
+    const histImg = histCanvas.toDataURL('image/png', 1.0);
+    const histRatio = histCanvas.height / histCanvas.width;
+    const histW = 180;
+    const histH = histW * histRatio;
+    doc.addImage(histImg, 'PNG', 15, 203, histW, histH);
+
+    // Second Page
+    doc.addPage();
+    doc.setFillColor(0, 132, 61);
+    doc.rect(0, 0, 210, 5, 'F');
+
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Distribución y Comparativa (Barras)', 20, 25);
+    doc.line(20, 27, 95, 27);
+    
+    const barCanvas = document.getElementById('histBarChart');
+    const barImg = barCanvas.toDataURL('image/png', 1.0);
+    const barRatio = barCanvas.height / barCanvas.width;
+    const barW = 180;
+    const barH = barW * barRatio;
+    doc.addImage(barImg, 'PNG', 15, 35, barW, barH);
+
+    doc.setFontSize(14);
+    doc.text('Densidad de Lecturas', 20, barH + 50);
+    doc.line(20, barH + 52, 70, barH + 52);
+
+    const doughCanvas = document.getElementById('histDoughnutChart');
+    const doughImg = doughCanvas.toDataURL('image/png', 1.0);
+    doc.addImage(doughImg, 'PNG', 55, barH + 60, 100, 100);
+
+    // Footer
+    doc.setFontSize(9);
+    doc.setTextColor(160);
+    doc.text('Este documento es un reporte técnico generado por el Sistema de Monitoreo IoT - Corhuila.', 105, 280, { align: 'center' });
+    doc.text('© Corhuila 2026 — Sede Pitalito, Huila', 105, 285, { align: 'center' });
+
+    doc.save(`Reporte_RPM_Proceso_${procId}.pdf`);
+    addLog('success', 'Reporte PDF con logo generado correctamente');
+  } catch (err) {
+    console.error('Error generating PDF:', err);
+    showAlert('error', 'Error PDF', 'No se pudo generar el reporte: ' + err.message);
+  } finally {
+    btn.innerHTML = originalHtml;
+    btn.disabled = false;
+  }
+}
+
+async function getImageBase64(url) {
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.error('Logo not found', e);
+    return null;
+  }
+}
+
+// ============================================================
+//  AUTOMATIC ANALYSIS ENGINE
+// ============================================================
+function generateAutomaticAnalysis(stats) {
+  const avg = parseFloat(stats.promedio) || 0;
+  const max = parseFloat(stats.maximo) || 0;
+  const std = parseFloat(stats.desviacion) || 0;
+  const total = parseInt(stats.total) || 0;
+
+  let interpretation = "";
+  let htmlInterpretation = "";
+
+  // 1. Stability Analysis
+  const cv = avg > 0 ? (std / avg) : 0; // Coeficiente de variación
+  let stabilityClass = "";
+  let stabilityText = "";
+
+  if (cv < 0.1) {
+    stabilityText = "Operación Altamente Estable";
+    interpretation += `El motor presenta una estabilidad excepcional (CV: ${(cv * 100).toFixed(1)}%). `;
+    htmlInterpretation += `<strong style="color:var(--corhuila-green)">✓ Estabilidad Optima:</strong> El motor presenta una estabilidad excepcional con variaciones mínimas respecto al promedio. `;
+  } else if (cv < 0.25) {
+    stabilityText = "Operación Normal";
+    interpretation += `La operación se mantiene dentro de los parámetros normales de fluctuación. `;
+    htmlInterpretation += `<strong style="color:var(--orange)">⚠ Estabilidad Nominal:</strong> La operación se mantiene dentro de los parámetros normales con fluctuaciones moderadas. `;
+  } else {
+    stabilityText = "Operación Inestable";
+    interpretation += `Se detecta una alta variabilidad en las RPM, lo cual podría indicar fallas mecánicas, carga irregular o problemas de alimentación. `;
+    htmlInterpretation += `<strong style="color:var(--red)">✖ Inestabilidad Detectada:</strong> Se detecta una alta variabilidad en las RPM. Se recomienda revisar la alineación del eje o la consistencia de la carga. `;
+  }
+
+  // 2. Performance & Peaks
+  const peakRatio = avg > 0 ? (max / avg) : 1;
+  if (peakRatio > 1.5) {
+    interpretation += `Existen picos de velocidad que superan en un ${(peakRatio*100-100).toFixed(0)}% el promedio, indicando posibles arranques bruscos o pérdidas momentáneas de carga. `;
+    htmlInterpretation += `<br><br><strong style="color:var(--red)">⚡ Picos Críticos:</strong> Se registraron picos que superan significativamente el promedio, lo cual puede estresar los componentes motorizados. `;
+  } else {
+    interpretation += `La relación entre el pico máximo y el promedio es saludable. `;
+  }
+
+  // 3. Data Consistency
+  interpretation += `El análisis se basa en una muestra sólida de ${total} lecturas capturadas durante el proceso. `;
+  
+  // 4. Conclusion
+  let conclusion = "";
+  if (cv < 0.2 && avg > 0) {
+    conclusion = "El sistema operó satisfactoriamente según los estándares de eficiencia esperados.";
+  } else if (avg === 0) {
+    conclusion = "No se detectó movimiento significativo durante el periodo evaluado.";
+  } else {
+    conclusion = "Se sugiere monitoreo preventivo debido a las irregularidades detectadas en el régimen de giro.";
+  }
+
+  const finalText = `${interpretation} En conclusión: ${conclusion}`;
+  htmlInterpretation += `<br><br><strong>Resumen Final:</strong> ${conclusion}`;
+
+  return {
+    text: finalText,
+    html: htmlInterpretation
+  };
 }
 
 // ============================================================
