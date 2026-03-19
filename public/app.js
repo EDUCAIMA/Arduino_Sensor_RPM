@@ -1013,23 +1013,26 @@ async function loadDashboardDevice() {
     const device = devices[0];
     state.dispositoActual = device;
     
-    // Si tiene IP y RSSI, es porque está recibiendo datos activamente
-    const isActive = device.ip && device.rssi;
+    // Verificar si el dispositivo envió un tópico recientemente (ej. hace menos de 2 minutos)
+    const isTransmitting = device.ultimo_contacto && (new Date() - new Date(device.ultimo_contacto)) < 120000;
+    
+    // Si tiene IP/RSSI y está transmitiendo, está realmente activo
+    const isActive = device.ip && device.rssi && isTransmitting;
 
     const lastContact = device.ultimo_contacto 
       ? new Date(device.ultimo_contacto).toLocaleTimeString('es-CO')
       : 'Nunca';
 
     container.innerHTML = `
-      <div class="sensor-info" style="${isActive ? 'border-color: var(--green); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--border); background: rgba(255, 255, 255, 0.02);'}">
-        <div class="sensor-header">
-          <div class="sensor-status online">
-            <span class="status-dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--green); box-shadow: 0 0 8px rgba(16, 185, 129, 0.6); animation: pulse-mqtt 2s infinite;"></span>
-            <span style="font-weight: 600; color: var(--green); font-size: 11px; text-transform: uppercase;">
-              ● CONECTADO
+      <div class="sensor-info" style="border-radius: 8px; border: 1px solid ${isActive ? 'var(--green)' : 'var(--border)'}; background: ${isActive ? 'rgba(16, 185, 129, 0.05)' : 'rgba(255, 255, 255, 0.02)'}; padding: 16px;">
+        <div class="sensor-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div class="sensor-name" style="font-weight: 600; font-size: 14px;">${escapeHtml(device.nombre)}</div>
+          <div class="sensor-status ${isActive ? 'online' : 'offline'}" style="display: flex; align-items: center; gap: 6px;">
+            <span class="status-dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${isActive ? 'var(--green)' : 'var(--text-muted)'}; box-shadow: ${isActive ? '0 0 8px rgba(16, 185, 129, 0.6)' : 'none'}; animation: ${isActive ? 'pulse-mqtt 2s infinite' : 'none'};"></span>
+            <span style="font-weight: 600; color: ${isActive ? 'var(--green)' : 'var(--text-muted)'}; font-size: 11px; text-transform: uppercase;">
+              ${isActive ? '● CONECTADO' : '○ DESCONECTADO'}
             </span>
           </div>
-          <div class="sensor-name">${escapeHtml(device.nombre)}</div>
         </div>
         <div class="sensor-meta-grid">
           <div class="sensor-meta-item">
@@ -1143,34 +1146,8 @@ function escapeHtml(str) {
 //  CONFIGURATION PAGE
 // ============================================================
 async function loadConfiguracion() {
-  await loadMQTTStatus();
   await loadBrokers();
   initConfigurationEventListeners();
-}
-
-async function loadMQTTStatus() {
-  try {
-    const res = await fetch(`${API}/api/config/mqtt-status`);
-    if (!res.ok) throw new Error('Error de red cargando status MQTT');
-    
-    const status = await res.json();
-    
-    if (status.error) throw new Error(status.error);
-
-    document.getElementById('mqttStatusConnectionState').textContent = 
-      status.connected ? '✅ Conectado' : '❌ Desconectado';
-    document.getElementById('mqttStatusBroker').textContent = status.broker || '—';
-    document.getElementById('mqttStatusPort').textContent = status.puerto || '—';
-    
-    const topicText = status.topics ? `${status.topics.rpm} | ${status.topics.estado}` : '— | —';
-    document.getElementById('mqttStatusTopics').textContent = topicText;
-  } catch (err) {
-    console.error('Error loading MQTT status:', err);
-    document.getElementById('mqttStatusConnectionState').textContent = 'Error';
-    document.getElementById('mqttStatusBroker').textContent = '—';
-    document.getElementById('mqttStatusPort').textContent = '—';
-    document.getElementById('mqttStatusTopics').textContent = '— | —';
-  }
 }
 
 async function loadBrokers() {
@@ -1231,12 +1208,10 @@ async function loadBrokers() {
 
 function initConfigurationEventListeners() {
   const btnNuevo = document.getElementById('btnNuevoBroker');
-  const btnRefresh = document.getElementById('btnRefreshMQTTStatus');
   const btnCancel = document.getElementById('modalBrokerCancel');
   const btnClose = document.getElementById('modalBrokerClose');
 
   if (btnNuevo) btnNuevo.onclick = () => openBrokerForm();
-  if (btnRefresh) btnRefresh.onclick = loadMQTTStatus;
   // Nota: btnSave usa onclick en el HTML (validateAndSaveBroker)
   if (btnCancel) btnCancel.onclick = closeBrokerForm;
   if (btnClose) btnClose.onclick = closeBrokerForm;
