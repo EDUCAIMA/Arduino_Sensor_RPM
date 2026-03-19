@@ -77,6 +77,11 @@
         </svg>
         <span>Dispositivos</span>
       </a>
+      <a href="#" class="nav-item" data-page="configuracion" id="nav-configuracion">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m5.08 5.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m5.08-5.08l4.24-4.24"/></svg>
+        <span>Configuración</span>
+      </a>
     </nav>
 
     <div class="sidebar-footer">
@@ -105,6 +110,10 @@
         <span class="page-subtitle" id="pageSubtitle">Monitoreo en tiempo real</span>
       </div>
       <div class="top-bar-actions">
+        <div class="mqtt-status-indicator" id="mqttStatusIndicator" title="Estado de conexión MQTT">
+          <div class="mqtt-status-dot"></div>
+          <span class="mqtt-status-text">Conectando...</span>
+        </div>
         <div class="live-rpm-badge" id="liveRpmBadge">
           <div class="pulse-ring"></div>
           <span class="live-rpm-value" id="liveRpmValue">0</span>
@@ -173,6 +182,16 @@
             <span class="stat-label">Uptime Sensor</span>
             <span class="stat-value stat-value-sm" id="statUptime">0s</span>
           </div>
+        </div>
+      </div>
+
+      <!-- Sensor Registrado -->
+      <div class="card sensor-card">
+        <div class="card-header">
+          <h3>Sensor Registrado</h3>
+        </div>
+        <div id="dashboardDeviceContainer" class="sensor-info-container">
+          <div class="loading">Cargando dispositivo...</div>
         </div>
       </div>
 
@@ -385,10 +404,59 @@
         </div>
       </div>
     </section>
+
+    <!-- ============================================ -->
+    <!--  PAGE: CONFIGURACIÓN                         -->
+    <!-- ============================================ -->
+    <section class="page" id="page-configuracion">
+      <!-- MQTT Broker Status Card -->
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="card-header">
+          <h3>Estado de Conexión MQTT</h3>
+        </div>
+        <div class="broker-status-info">
+          <div class="status-item">
+            <span class="status-label">Estado:</span>
+            <span class="status-value" id="mqttStatusConnectionState">—</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Broker:</span>
+            <span class="status-value" id="mqttStatusBroker">—</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Puerto:</span>
+            <span class="status-value" id="mqttStatusPort">—</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Topics:</span>
+            <span class="status-value" id="mqttStatusTopics">—</span>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="btnRefreshMQTTStatus" style="margin-top: 10px;">Actualizar Estado</button>
+      </div>
+
+      <!-- Broker Configuration Card -->
+      <div class="card">
+        <div class="card-header">
+          <h3>Configuración del Broker MQTT</h3>
+          <button class="btn btn-success" id="btnNuevoBroker">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Agregar Broker
+          </button>
+        </div>
+        
+        <div class="brokers-list" id="brokersList">
+          <div class="loading">Cargando configuración...</div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <!-- ============================================ -->
-  <!--  MODAL: Nuevo Proceso                        -->
+  <!--  MODAL: Nuevo/Editar Broker MQTT            -->
   <!-- ============================================ -->
   <div class="modal-overlay" id="modalOverlay">
     <div class="modal" id="modalNuevoProceso">
@@ -413,6 +481,104 @@
             <polyline points="20 6 9 17 4 12"/>
           </svg>
           Crear Proceso
+        </button>
+      </div>
+    </div>
+
+    <div class="modal" id="modalBrokerForm" style="display: none;">
+      <div class="modal-header">
+        <h3 id="brokerFormTitle">Configurar Broker MQTT</h3>
+        <button class="modal-close" id="modalBrokerClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-section">
+          <h4 class="section-title">Información Básica</h4>
+          <div class="form-group">
+            <label for="brokerNombre">Nombre del Broker <span class="required">*</span></label>
+            <input type="text" id="brokerNombre" class="form-input" placeholder="Ej: EMQX Cloud Principal" required>
+            <small class="form-hint">Nombre descriptivo para identificar este broker</small>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">Parámetros de Conexión</h4>
+          <div class="form-group">
+            <label for="brokerServidor">Servidor <span class="required">*</span></label>
+            <input type="text" id="brokerServidor" class="form-input" placeholder="Ej: broker.emqx.io" required>
+            <small class="form-hint">Dirección del broker MQTT (IP o dominio)</small>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="brokerPuerto">Puerto <span class="required">*</span></label>
+              <input type="number" id="brokerPuerto" class="form-input" value="8883" min="1" max="65535" required>
+              <small class="form-hint">Puerto de conexión (8883 para MQTTS)</small>
+            </div>
+            <div class="form-group">
+              <label for="brokerProtocolo">Protocolo</label>
+              <select id="brokerProtocolo" class="form-input">
+                <option value="mqtts">MQTTS (TLS) - Seguro</option>
+                <option value="mqtt">MQTT (TCP) - No seguro</option>
+              </select>
+              <small class="form-hint">Selecciona el protocolo de seguridad</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">Autenticación</h4>
+          <div class="form-group">
+            <label for="brokerUsuario">Usuario <span class="required">*</span></label>
+            <input type="text" id="brokerUsuario" class="form-input" placeholder="Username" required>
+            <small class="form-hint">Usuario para autenticarse en el broker</small>
+          </div>
+          <div class="form-group">
+            <label for="brokerContraseña">Contraseña <span class="required">*</span></label>
+            <input type="password" id="brokerContraseña" class="form-input" placeholder="Contraseña segura" required>
+            <small class="form-hint">Contraseña de autenticación</small>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">Topics MQTT</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="brokerTopicRpm">Topic RPM</label>
+              <input type="text" id="brokerTopicRpm" class="form-input" value="rpm/datos" placeholder="rpm/datos">
+              <small class="form-hint">Donde se publican los datos de RPM</small>
+            </div>
+            <div class="form-group">
+              <label for="brokerTopicEstado">Topic Estado</label>
+              <input type="text" id="brokerTopicEstado" class="form-input" value="rpm/estado" placeholder="rpm/estado">
+              <small class="form-hint">Donde se publica el estado del sistema</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">Opciones Avanzadas</h4>
+          <div class="form-group">
+            <label for="brokerDescripcion">Descripción</label>
+            <textarea id="brokerDescripcion" class="form-input" rows="2" placeholder="Notas sobre este broker (opcional)"></textarea>
+            <small class="form-hint">Información adicional para referencia</small>
+          </div>
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" id="brokerVerificarCert" checked>
+              <span>Verificar certificado SSL/TLS</span>
+              <small class="checkbox-hint">Recomendado activar en producción</small>
+            </label>
+          </div>
+        </div>
+
+        <div id="brokerFormErrors" class="form-errors" style="display: none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="modalBrokerCancel">Cancelar</button>
+        <button class="btn btn-primary" id="modalBrokerSave" onclick="validateAndSaveBroker()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          <span id="brokerSaveText">Guardar Broker</span>
         </button>
       </div>
     </div>

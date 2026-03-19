@@ -1,6 +1,7 @@
 // ============================================================
 //  Cliente MQTT → suscripción a EMQX Cloud (TLS)
 //  Recibe datos del ESP32 y los almacena en MySQL
+//  Credenciales cargadas desde BD
 // ============================================================
 
 const mqtt = require('mqtt');
@@ -9,6 +10,8 @@ require('dotenv').config();
 
 let wsBroadcast = null;         // se inyecta desde index.js
 let procesoActivo = null;       // cache del proceso activo
+let mqttClient = null;          // cliente MQTT global
+let brokerConfig = null;        // configuración activa del broker
 
 // ============================================================
 //  Buscar o crear dispositivo
@@ -38,44 +41,129 @@ async function getProcesoActivo() {
 }
 
 // ============================================================
-//  Conectar MQTT
+//  Cargar configuración del broker desde BD
+// ============================================================
+async function loadBrokerConfig() {
+  try {
+    // Buscar broker activo
+    const [rows] = await db.execute(
+      `SELECT * FROM mqtt_broker WHERE activo = TRUE LIMIT 1`
+    );
+
+    if (rows.length === 0) {
+      console.warn('⚠️  No hay broker activo en BD. Usando variables de entorno.');
+      return {
+        servidor: process.env.MQTT_SERVER || 'broker.emqx.io',
+        puerto: parseInt(process.env.MQTT_PORT || '8883'),
+        usuario: process.env.MQTT_USER || '',
+        contraseña: process.env.MQTT_PASS || '',
+        protocolo: 'mqtts',
+        topic_rpm: process.env.MQTT_TOPIC_RPM || 'rpm/datos',
+        topic_estado: process.env.MQTT_TOPIC_STATUS || 'rpm/estado',
+        verificar_cert: true
+      };
+    }
+
+    brokerConfig = rows[0];
+    return brokerConfig;
+  } catch (err) {
+    console.error('❌ Error cargando config de broker:', err.message);
+    // Fallback a env vars
+    return {
+      servidor: process.env.MQTT_SERVER || 'broker.emqx.io',
+      puerto: parseInt(process.env.MQTT_PORT || '8883'),
+      usuario: process.env.MQTT_USER || '',
+      contraseña: process.env.MQTT_PASS || '',
+      protocolo: 'mqtts',
+      topic_rpm: process.env.MQTT_TOPIC_RPM || 'rpm/datos',
+      topic_estado: process.env.MQTT_TOPIC_STATUS || 'rpm/estado',
+      verificar_cert: true
+    };
+  }
+}
+
+// ============================================================
+//  Conectar MQTT con credenciales de BD
 // ============================================================
 function connectMQTT(broadcastFn) {
   wsBroadcast = broadcastFn;
+  
+  // Cargar config y conectar
+  loadBrokerConfig().then(config => {
+    connectWithConfig(config);
+  });
+}
 
+// ============================================================
+//  Conectar con configuración específica
+// ============================================================
+function connectWithConfig(config) {
   const options = {
-    port:     parseInt(process.env.MQTT_PORT || '8883'),
-    protocol: 'mqtts',
-    username: process.env.MQTT_USER,
-    password: process.env.MQTT_PASS,
-    clientId: `dashboard-${Date.now()}`,
-    rejectUnauthorized: true,
+    port: config.puerto,
+    protocol: config.protocolo || 'mqtts',
+    username: config.usuario,
+    password: config.contraseña,
+    clientId: `dashboard-rpm-${Date.now()}`,
+    rejectUnauthorized: config.verificar_cert !== false,
     reconnectPeriod: 5000,
     connectTimeout: 10000,
   };
 
-  const url = `mqtts://${process.env.MQTT_SERVER}`;
+  const url = `${config.protocolo}://${config.servidor}`;
   console.log(`🔌 Conectando MQTT a ${url}:${options.port}...`);
 
-  const client = mqtt.connect(url, options);
+  // Desconectar cliente anterior si existe
+  if (mqttClient) {
+    mqttClient.end();
+  }
 
-  client.on('connect', () => {
-    console.log('✅ MQTT conectado a EMQX Cloud');
-    client.subscribe(process.env.MQTT_TOPIC_RPM    || 'rpm/datos');
-    client.subscribe(process.env.MQTT_TOPIC_STATUS  || 'rpm/estado');
+  mqttClient = mqtt.connect(url, options);
+
+  mqttClient.on('connect', () => {
+    console.log('✅ MQTT conectado exitosamente');
+    mqttClient.subscribe(config.topic_rpm);
+    mqttClient.subscribe(config.topic_estado);
+    
+    if (wsBroadcast) {
+      wsBroadcast(JSON.stringify({
+        type: 'mqtt_status',
+        status: 'connected',
+        broker: config.servidor,
+        timestamp: new Date().toISOString()
+      }));
+    }
   });
 
-  client.on('error', err => {
+  mqttClient.on('error', err => {
     console.error('❌ MQTT error:', err.message);
+    if (wsBroadcast) {
+      wsBroadcast(JSON.stringify({
+        type: 'mqtt_status',
+        status: 'error',
+        error: err.message,
+        timestamp: new Date().toISOString()
+      }));
+    }
   });
 
-  client.on('message', async (topic, message) => {
+  mqttClient.on('disconnect', () => {
+    console.log('⚠️  MQTT desconectado');
+    if (wsBroadcast) {
+      wsBroadcast(JSON.stringify({
+        type: 'mqtt_status',
+        status: 'disconnected',
+        timestamp: new Date().toISOString()
+      }));
+    }
+  });
+
+  mqttClient.on('message', async (topic, message) => {
     try {
       const data = JSON.parse(message.toString());
 
-      if (topic === (process.env.MQTT_TOPIC_RPM || 'rpm/datos')) {
+      if (topic === config.topic_rpm) {
         await handleRPM(data);
-      } else if (topic === (process.env.MQTT_TOPIC_STATUS || 'rpm/estado')) {
+      } else if (topic === config.topic_estado) {
         await handleStatus(data);
       }
     } catch (err) {
@@ -83,7 +171,7 @@ function connectMQTT(broadcastFn) {
     }
   });
 
-  return client;
+  return mqttClient;
 }
 
 // ============================================================
@@ -156,4 +244,26 @@ function resetProcesoCache() {
   procesoActivo = null;
 }
 
-module.exports = { connectMQTT, resetProcesoCache };
+// ============================================================
+//  Reconectar MQTT (cuando cambia configuración del broker)
+// ============================================================
+async function reconnectMQTT() {
+  console.log('🔄 Reconectando MQTT con nueva configuración...');
+  const config = await loadBrokerConfig();
+  connectWithConfig(config);
+}
+
+// ============================================================
+//  Obtener estado del cliente MQTT
+// ============================================================
+function getMQTTClient() {
+  return mqttClient;
+}
+
+module.exports = { 
+  connectMQTT, 
+  resetProcesoCache,
+  reconnectMQTT,
+  loadBrokerConfig,
+  getMQTTClient
+};

@@ -129,6 +129,29 @@ CREATE TABLE IF NOT EXISTS configuracion (
   updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
+-- ============================================================
+--  Tabla 6: mqtt_broker
+--  Configuración del broker MQTT (credenciales, servidor, etc)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS mqtt_broker (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  nombre        VARCHAR(100) NOT NULL DEFAULT 'Broker Principal',
+  servidor      VARCHAR(255) NOT NULL,
+  puerto        INT NOT NULL DEFAULT 8883,
+  usuario       VARCHAR(100) NOT NULL,
+  contraseña    VARCHAR(255) NOT NULL,
+  protocolo     ENUM('mqtts', 'mqtt') NOT NULL DEFAULT 'mqtts',
+  topic_rpm     VARCHAR(100) NOT NULL DEFAULT 'rpm/datos',
+  topic_estado  VARCHAR(100) NOT NULL DEFAULT 'rpm/estado',
+  activo        BOOLEAN DEFAULT TRUE,
+  verificar_cert BOOLEAN DEFAULT TRUE,
+  descripcion   TEXT,
+  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  INDEX idx_activo (activo)
+) ENGINE=InnoDB;
+
 -- Insertar configuración por defecto
 INSERT INTO configuracion (clave, valor, descripcion) VALUES
   ('rpm_alerta_alta',  '5000', 'Umbral RPM alto para generar alerta'),

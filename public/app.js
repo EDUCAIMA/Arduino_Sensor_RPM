@@ -19,6 +19,8 @@ const state = {
   histChart: null,
   histBarChart: null,
   histDoughnutChart: null,
+  mqttConnected: false, // Estado MQTT
+  dispositoActual: null, // Dispositivo registrado
 };
 
 // ============================================================
@@ -34,13 +36,65 @@ document.addEventListener('DOMContentLoaded', () => {
   initHistorico();
   loadProcesos();
   loadDispositivos();
+  loadDashboardDevice(); // Cargar dispositivo en dashboard
+  updateMQTTIndicator(); // Actualizar indicador MQTT inicial
 
   // Refresh data periodically
   setInterval(() => {
     if (state.currentPage === 'procesos') loadProcesos();
     if (state.currentPage === 'dispositivos') loadDispositivos();
   }, 10000);
+
+  // Actualizar indicador MQTT cada 3 segundos
+  setInterval(updateMQTTIndicator, 3000);
+  
+  // Actualizar dispositivo en dashboard cada 10 segundos
+  setInterval(loadDashboardDevice, 10000);
 });
+
+// ============================================================
+//  MQTT INDICATOR UPDATE
+// ============================================================
+async function updateMQTTIndicator() {
+  try {
+    const res = await fetch(`${API}/api/config/mqtt-status`);
+    if (!res.ok) throw new Error('Error fetching MQTT status');
+    
+    const status = await res.json();
+    const indicator = document.getElementById('mqttStatusIndicator');
+    const dot = document.querySelector('.mqtt-status-dot');
+    const text = document.querySelector('.mqtt-status-text');
+    
+    if (!indicator || !dot || !text) return;
+    
+    state.mqttConnected = status.connected;
+    
+    if (status.connected) {
+      dot.className = 'mqtt-status-dot connected';
+      text.textContent = 'MQTT Conectado';
+      indicator.title = `Conectado a ${status.broker}:${status.puerto}`;
+      indicator.classList.add('connected');
+    } else {
+      dot.className = 'mqtt-status-dot disconnected';
+      text.textContent = 'MQTT Desconectado';
+      indicator.title = 'Servidor MQTT desconectado';
+      indicator.classList.remove('connected');
+    }
+  } catch (err) {
+    const indicator = document.getElementById('mqttStatusIndicator');
+    const dot = document.querySelector('.mqtt-status-dot');
+    const text = document.querySelector('.mqtt-status-text');
+    
+    if (dot && text) {
+      dot.className = 'mqtt-status-dot error';
+      text.textContent = 'Error';
+      if (indicator) {
+        indicator.title = 'Error al conectar con MQTT';
+        indicator.classList.remove('connected');
+      }
+    }
+  }
+}
 
 // ============================================================
 //  NAVIGATION
@@ -80,7 +134,8 @@ function switchPage(page) {
     dashboard: ['Dashboard', 'Monitoreo en tiempo real'],
     procesos: ['Procesos', 'Gestión de procesos de medición'],
     historico: ['Histórico', 'Gráficos y análisis histórico'],
-    dispositivos: ['Dispositivos', 'Sensores IoT registrados']
+    dispositivos: ['Dispositivos', 'Sensores IoT registrados'],
+    configuracion: ['Configuración', 'Gestión del broker MQTT y credenciales']
   };
 
   document.getElementById('pageTitle').textContent = titles[page][0];
@@ -90,6 +145,7 @@ function switchPage(page) {
   if (page === 'procesos') loadProcesos();
   if (page === 'dispositivos') loadDispositivos();
   if (page === 'historico') loadProcesoSelect();
+  if (page === 'configuracion') loadConfiguracion();
 }
 
 // ============================================================
@@ -142,6 +198,11 @@ function handleWSMessage(data) {
       break;
     case 'device_status':
       updateDeviceStatus(data);
+      break;
+    case 'mqtt_status':
+      if (state.currentPage === 'configuracion') {
+        loadMQTTStatus();
+      }
       break;
   }
 }
@@ -200,6 +261,15 @@ function updateRPMDisplay(data) {
 
 function updateDeviceStatus(data) {
   addLog('success', `Sensor: IP=${data.ip} | RSSI=${data.rssi}dBm | RPM=${(data.rpm || 0).toFixed(1)}`);
+  
+  // Actualizar dispositivo en dashboard
+  if (state.dispositoActual) {
+    state.dispositoActual.ip = data.ip;
+    state.dispositoActual.rssi = data.rssi;
+    state.dispositoActual.ultimo_up = data.up;
+    state.dispositoActual.ultimo_contacto = new Date().toISOString();
+    loadDashboardDevice();
+  }
 }
 
 // ============================================================
@@ -854,6 +924,90 @@ function renderHistDoughnutChart(data) {
 }
 
 // ============================================================
+//  DISPOSITIVO EN DASHBOARD
+// ============================================================
+async function loadDashboardDevice() {
+  try {
+    const res = await fetch(`${API}/api/dispositivos`);
+    const devices = await res.json();
+
+    const container = document.getElementById('dashboardDeviceContainer');
+    
+    if (devices.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <p>Esperando que el sensor ESP32 se conecte...</p>
+        </div>`;
+      return;
+    }
+
+    // Mostrar el primer dispositivo (generalmente el único)
+    const device = devices[0];
+    state.dispositoActual = device;
+    
+    // Si tiene IP y RSSI, es porque está recibiendo datos activamente
+    const isActive = device.ip && device.rssi;
+
+    const lastContact = device.ultimo_contacto 
+      ? new Date(device.ultimo_contacto).toLocaleTimeString('es-CO')
+      : 'Nunca';
+
+    container.innerHTML = `
+      <div class="sensor-info" style="${isActive ? 'border-color: var(--green); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--border); background: rgba(255, 255, 255, 0.02);'}">
+        <div class="sensor-header">
+          <div class="sensor-status online">
+            <span class="status-dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--green); box-shadow: 0 0 8px rgba(16, 185, 129, 0.6); animation: pulse-mqtt 2s infinite;"></span>
+            <span style="font-weight: 600; color: var(--green); font-size: 11px; text-transform: uppercase;">
+              ● CONECTADO
+            </span>
+          </div>
+          <div class="sensor-name">${escapeHtml(device.nombre)}</div>
+        </div>
+        <div class="sensor-meta-grid">
+          <div class="sensor-meta-item">
+            <span class="sensor-meta-label">ID Cliente</span>
+            <span class="sensor-meta-value" title="${escapeHtml(device.client_id)}">${escapeHtml(device.client_id)}</span>
+          </div>
+          <div class="sensor-meta-item">
+            <span class="sensor-meta-label">IP</span>
+            <span class="sensor-meta-value">${device.ip || '—'}</span>
+          </div>
+          <div class="sensor-meta-item">
+            <span class="sensor-meta-label">RSSI (Señal)</span>
+            <span class="sensor-meta-value">${device.rssi || '—'} dBm</span>
+          </div>
+          <div class="sensor-meta-item">
+            <span class="sensor-meta-label">Último Contacto</span>
+            <span class="sensor-meta-value">${lastContact}</span>
+          </div>
+          <div class="sensor-meta-item">
+            <span class="sensor-meta-label">Uptime</span>
+            <span class="sensor-meta-value">${formatUptime(device.ultimo_up || 0)}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    console.error('Error loading dashboard device:', err);
+    const container = document.getElementById('dashboardDeviceContainer');
+    if (container) {
+      container.innerHTML = '<div class="empty-state error">Error cargando dispositivo</div>';
+    }
+  }
+}
+
+// Helper function para formatear tiempo de uptime
+function formatUptime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+// ============================================================
 //  DISPOSITIVOS
 // ============================================================
 async function loadDispositivos() {
@@ -981,3 +1135,325 @@ function escapeHtml(str) {
   div.textContent = str;
   return div.innerHTML;
 }
+
+// ============================================================
+//  CONFIGURATION PAGE
+// ============================================================
+async function loadConfiguracion() {
+  await loadMQTTStatus();
+  await loadBrokers();
+  initConfigurationEventListeners();
+}
+
+async function loadMQTTStatus() {
+  try {
+    const res = await fetch(`${API}/api/config/mqtt-status`);
+    const status = await res.json();
+
+    document.getElementById('mqttStatusConnectionState').textContent = 
+      status.connected ? '✅ Conectado' : '❌ Desconectado';
+    document.getElementById('mqttStatusBroker').textContent = status.broker || '—';
+    document.getElementById('mqttStatusPort').textContent = status.puerto || '—';
+    document.getElementById('mqttStatusTopics').textContent = 
+      `${status.topics.rpm} | ${status.topics.estado}`;
+  } catch (err) {
+    console.error('Error loading MQTT status:', err);
+    document.getElementById('mqttStatusConnectionState').textContent = 'Error';
+  }
+}
+
+async function loadBrokers() {
+  try {
+    const res = await fetch(`${API}/api/config/brokers`);
+    const brokers = await res.json();
+
+    const container = document.getElementById('brokersList');
+
+    if (brokers.length === 0) {
+      container.innerHTML = '<div class="empty-state">No hay brokers configurados. Agregue uno nuevo.</div>';
+      return;
+    }
+
+    container.innerHTML = brokers.map(broker => `
+      <div class="broker-item ${broker.activo ? 'active' : ''}">
+        <div class="broker-header">
+          <div class="broker-title">
+            <h4>${escapeHtml(broker.nombre)}</h4>
+            ${broker.activo ? '<span class="badge badge-success">ACTIVO</span>' : '<span class="badge badge-gray">INACTIVO</span>'}
+          </div>
+          <div class="broker-actions">
+            <button class="btn btn-sm btn-primary" onclick="editBroker(${broker.id})">Editar</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteBroker(${broker.id}, '${escapeHtml(broker.nombre)}')">Eliminar</button>
+          </div>
+        </div>
+        <div class="broker-info">
+          <div class="info-item">
+            <span class="label">Servidor:</span>
+            <span class="value">${escapeHtml(broker.servidor)}:${broker.puerto}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Protocolo:</span>
+            <span class="value">${broker.protocolo.toUpperCase()}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Usuario:</span>
+            <span class="value">${escapeHtml(broker.usuario)}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Topics:</span>
+            <span class="value">${escapeHtml(broker.topic_rpm)} | ${escapeHtml(broker.topic_estado)}</span>
+          </div>
+          ${broker.descripcion ? `<div class="info-item"><span class="label">Descripción:</span><span class="value">${escapeHtml(broker.descripcion)}</span></div>` : ''}
+        </div>
+        ${!broker.activo ? `
+          <div class="broker-footer">
+            <button class="btn btn-primary" onclick="activateBroker(${broker.id})">Activar Broker</button>
+          </div>
+        ` : ''}
+      </div>
+    `).join('');
+  } catch (err) {
+    console.error('Error loading brokers:', err);
+    document.getElementById('brokersList').innerHTML = '<div class="empty-state error">Error cargando brokers</div>';
+  }
+}
+
+function initConfigurationEventListeners() {
+  const btnNuevo = document.getElementById('btnNuevoBroker');
+  const btnRefresh = document.getElementById('btnRefreshMQTTStatus');
+  const btnCancel = document.getElementById('modalBrokerCancel');
+  const btnClose = document.getElementById('modalBrokerClose');
+
+  if (btnNuevo) btnNuevo.onclick = () => openBrokerForm();
+  if (btnRefresh) btnRefresh.onclick = loadMQTTStatus;
+  // Nota: btnSave usa onclick en el HTML (validateAndSaveBroker)
+  if (btnCancel) btnCancel.onclick = closeBrokerForm;
+  if (btnClose) btnClose.onclick = closeBrokerForm;
+}
+
+function openBrokerForm(brokerId = null) {
+  const modal = document.getElementById('modalBrokerForm');
+  const title = document.getElementById('brokerFormTitle');
+
+  if (brokerId) {
+    title.textContent = 'Editar Broker MQTT';
+    // Load broker data and populate form
+    fetch(`${API}/api/config/brokers`)
+      .then(r => r.json())
+      .then(brokers => {
+        const broker = brokers.find(b => b.id === brokerId);
+        if (broker) {
+          document.getElementById('brokerNombre').value = broker.nombre || '';
+          document.getElementById('brokerServidor').value = broker.servidor || '';
+          document.getElementById('brokerPuerto').value = broker.puerto || 8883;
+          document.getElementById('brokerProtocolo').value = broker.protocolo || 'mqtts';
+          document.getElementById('brokerUsuario').value = broker.usuario || '';
+          document.getElementById('brokerContraseña').value = '';
+          document.getElementById('brokerTopicRpm').value = broker.topic_rpm || 'rpm/datos';
+          document.getElementById('brokerTopicEstado').value = broker.topic_estado || 'rpm/estado';
+          document.getElementById('brokerDescripcion').value = broker.descripcion || '';
+          document.getElementById('brokerVerificarCert').checked = broker.verificar_cert !== false;
+          document.getElementById('modalBrokerForm').dataset.brokerId = brokerId;
+        }
+        modal.style.display = 'flex';
+      });
+  } else {
+    title.textContent = 'Agregar Nuevo Broker MQTT';
+    document.getElementById('brokerNombre').value = '';
+    document.getElementById('brokerServidor').value = '';
+    document.getElementById('brokerPuerto').value = 8883;
+    document.getElementById('brokerProtocolo').value = 'mqtts';
+    document.getElementById('brokerUsuario').value = '';
+    document.getElementById('brokerContraseña').value = '';
+    document.getElementById('brokerTopicRpm').value = 'rpm/datos';
+    document.getElementById('brokerTopicEstado').value = 'rpm/estado';
+    document.getElementById('brokerDescripcion').value = '';
+    document.getElementById('brokerVerificarCert').checked = true;
+    delete document.getElementById('modalBrokerForm').dataset.brokerId;
+    modal.style.display = 'flex';
+  }
+}
+
+function closeBrokerForm() {
+  document.getElementById('modalBrokerForm').style.display = 'none';
+}
+
+// Validación mejorada del formulario de broker
+function validateBrokerForm() {
+  const errors = [];
+  
+  const nombre = document.getElementById('brokerNombre').value.trim();
+  const servidor = document.getElementById('brokerServidor').value.trim();
+  const puerto = parseInt(document.getElementById('brokerPuerto').value);
+  const usuario = document.getElementById('brokerUsuario').value.trim();
+  const contraseña = document.getElementById('brokerContraseña').value;
+  const topic_rpm = document.getElementById('brokerTopicRpm').value.trim();
+  const topic_estado = document.getElementById('brokerTopicEstado').value.trim();
+
+  // Validaciones
+  if (!nombre) errors.push('El nombre del broker es requerido');
+  if (!servidor) errors.push('El servidor es requerido');
+  if (!usuario) errors.push('El usuario es requerido');
+  if (!contraseña) errors.push('La contraseña es requerida');
+  
+  if (isNaN(puerto) || puerto < 1 || puerto > 65535) errors.push('Puerto inválido (debe estar entre 1 y 65535)');
+  if (servidor.includes(' ')) errors.push('El servidor no puede contener espacios');
+  if (usuario.includes(' ')) errors.push('El usuario no puede contener espacios');
+  if (nombre.length > 100) errors.push('El nombre es demasiado largo (máximo 100 caracteres)');
+  if (topic_rpm && topic_rpm.includes(' ')) errors.push('El topic RPM no puede contener espacios');
+  if (topic_estado && topic_estado.includes(' ')) errors.push('El topic Estado no puede contener espacios');
+
+  return errors;
+}
+
+// Mostrar errores de validación
+function showBrokerFormErrors(errors) {
+  const errorContainer = document.getElementById('brokerFormErrors');
+  if (!errorContainer) return;
+  
+  if (errors.length === 0) {
+    errorContainer.style.display = 'none';
+    errorContainer.innerHTML = '';
+    return;
+  }
+  
+  errorContainer.innerHTML = `
+    <div class="error-list">
+      <strong>⚠️ Errores en el formulario:</strong>
+      <ul>
+        ${errors.map(err => `<li>${err}</li>`).join('')}
+      </ul>
+    </div>
+  `;
+  errorContainer.style.display = 'block';
+}
+
+// Validar y guardar broker (nueva función mejorada)
+async function validateAndSaveBroker() {
+  const errors = validateBrokerForm();
+  
+  if (errors.length > 0) {
+    showBrokerFormErrors(errors);
+    return;
+  }
+  
+  showBrokerFormErrors([]); // Limpiar errores
+  
+  // Proceder con saveBroker
+  const saveBtn = document.getElementById('modalBrokerSave');
+  const saveText = document.getElementById('brokerSaveText');
+  const originalText = saveText.textContent;
+  
+  try {
+    saveBtn.disabled = true;
+    saveText.textContent = 'Guardando...';
+    await saveBroker();
+  } finally {
+    saveBtn.disabled = false;
+    saveText.textContent = originalText;
+  }
+}
+
+async function saveBroker() {
+  const nombre = document.getElementById('brokerNombre').value.trim();
+  const servidor = document.getElementById('brokerServidor').value.trim();
+  const puerto = parseInt(document.getElementById('brokerPuerto').value);
+  const usuario = document.getElementById('brokerUsuario').value.trim();
+  const contraseña = document.getElementById('brokerContraseña').value;
+  const protocolo = document.getElementById('brokerProtocolo').value;
+  const topic_rpm = document.getElementById('brokerTopicRpm').value.trim();
+  const topic_estado = document.getElementById('brokerTopicEstado').value.trim();
+  const descripcion = document.getElementById('brokerDescripcion').value.trim();
+  const verificar_cert = document.getElementById('brokerVerificarCert').checked;
+
+  try {
+    const brokerData = {
+      nombre,
+      servidor,
+      puerto,
+      usuario,
+      protocolo,
+      topic_rpm,
+      topic_estado,
+      descripcion,
+      verificar_cert
+    };
+
+    // Solo incluir contraseña si se cambió (no está vacía)
+    if (contraseña && contraseña.length > 0) {
+      brokerData.contraseña = contraseña;
+    }
+
+    const brokerIdAttr = document.getElementById('modalBrokerForm').dataset.brokerId;
+    const isUpdate = brokerIdAttr !== undefined;
+    const url = isUpdate 
+      ? `${API}/api/config/broker/${brokerIdAttr}`
+      : `${API}/api/config/broker`;
+    const method = isUpdate ? 'PUT' : 'POST';
+
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(brokerData)
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      const errorMsg = data.error || 'Error guardando broker';
+      showBrokerFormErrors([errorMsg]);
+      return;
+    }
+
+    closeBrokerForm();
+    addLog('success', `Broker ${isUpdate ? 'actualizado' : 'agregado'} correctamente ✓`);
+    // Actualizar estado del indicador MQTT después de cambiar broker
+    setTimeout(updateMQTTIndicator, 1000);
+    loadConfiguracion();
+  } catch (err) {
+    showBrokerFormErrors([`Error: ${err.message}`]);
+  }
+}
+
+window.editBroker = (id) => openBrokerForm(id);
+
+window.activateBroker = async (id) => {
+  try {
+    const res = await fetch(`${API}/api/config/broker/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activo: true })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.error || 'Error activando broker');
+      return;
+    }
+
+    addLog('success', 'Broker activado y reconectado');
+    loadConfiguracion();
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+};
+
+window.deleteBroker = async (id, nombre) => {
+  if (!confirm(`¿Está seguro de eliminar el broker "${nombre}"?`)) return;
+
+  try {
+    const res = await fetch(`${API}/api/config/broker/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.error || 'Error eliminando broker');
+      return;
+    }
+
+    addLog('success', 'Broker eliminado');
+    loadConfiguracion();
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+};

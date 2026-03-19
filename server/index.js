@@ -27,6 +27,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api/procesos',      require('./routes-procesos'));
 app.use('/api/lecturas',      require('./routes-lecturas'));
 app.use('/api/dispositivos',  require('./routes-dispositivos'));
+app.use('/api/config',        require('./routes-configuracion'));
 
 // SPA fallback
 app.get('*', (req, res) => {
