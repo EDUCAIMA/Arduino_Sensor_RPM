@@ -184,7 +184,11 @@ router.put('/broker/:id', async (req, res) => {
       } else {
         updateData.activo = false;
       }
+    } else {
+      updateData.activo = current[0].activo;
     }
+
+    console.log("UPDATE DATA:", updateData);
 
     await db.execute(
       `UPDATE mqtt_broker SET
@@ -263,6 +267,16 @@ router.get('/mqtt-status', async (req, res) => {
     const { getMQTTClient, loadBrokerConfig } = require('./mqtt-client');
     const client = getMQTTClient();
     const config = await loadBrokerConfig();
+
+    if (!config) {
+      return res.json({
+        connected: false,
+        broker: 'Sin Configurar',
+        puerto: '—',
+        topics: { rpm: '—', estado: '—' },
+        timestamp: new Date().toISOString()
+      });
+    }
 
     res.json({
       connected: client && client.connected,

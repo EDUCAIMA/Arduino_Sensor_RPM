@@ -77,14 +77,12 @@ document.addEventListener('DOMContentLoaded', () => {
   initProcessActions();
   initHistorico();
   loadProcesos();
-  loadDispositivos();
   loadDashboardDevice(); // Cargar dispositivo en dashboard
   updateMQTTIndicator(); // Actualizar indicador MQTT inicial
 
   // Refresh data periodically
   setInterval(() => {
     if (state.currentPage === 'procesos') loadProcesos();
-    if (state.currentPage === 'dispositivos') loadDispositivos();
   }, 10000);
 
   // Actualizar indicador MQTT cada 3 segundos
@@ -176,7 +174,6 @@ function switchPage(page) {
     dashboard: ['Dashboard', 'Monitoreo en tiempo real'],
     procesos: ['Procesos', 'Gestión de procesos de medición'],
     historico: ['Histórico', 'Gráficos y análisis histórico'],
-    dispositivos: ['Dispositivos', 'Sensores IoT registrados'],
     configuracion: ['Configuración', 'Gestión del broker MQTT y credenciales']
   };
 
@@ -185,7 +182,6 @@ function switchPage(page) {
 
   // Refresh data on page switch
   if (page === 'procesos') loadProcesos();
-  if (page === 'dispositivos') loadDispositivos();
   if (page === 'historico') loadProcesoSelect();
   if (page === 'configuracion') loadConfiguracion();
 }
@@ -678,7 +674,7 @@ window.reanudarProceso = async function(id) {
   try {
     const res = await fetch(`${API}/api/procesos/${id}/reanudar`, { method: 'PUT' });
     const data = await res.json();
-    if (!res.ok) { alert(data.error); return; }
+    if (!res.ok) { showAlert('error', 'Error', data.error); return; }
     loadProcesos();
   } catch (err) { console.error(err); }
 };
@@ -1079,71 +1075,6 @@ function formatUptime(seconds) {
   return `${s}s`;
 }
 
-// ============================================================
-//  DISPOSITIVOS
-// ============================================================
-async function loadDispositivos() {
-  try {
-    const res = await fetch(`${API}/api/dispositivos`);
-    const devices = await res.json();
-
-    const grid = document.getElementById('devicesGrid');
-
-    if (devices.length === 0) {
-      grid.innerHTML = `
-        <div class="empty-state" style="padding:40px;text-align:center;color:var(--text-muted);grid-column:1/-1;">
-          No hay dispositivos registrados aún.<br>
-          Se registrarán automáticamente cuando el sensor ESP32 se conecte.
-        </div>`;
-      return;
-    }
-
-    grid.innerHTML = devices.map(d => {
-      const isOnline = d.ultimo_contacto &&
-        (new Date() - new Date(d.ultimo_contacto)) < 120000;
-
-      return `
-        <div class="device-card">
-          <div class="device-header">
-            <div class="device-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="4" y="4" width="16" height="16" rx="2"/>
-                <rect x="9" y="9" width="6" height="6"/>
-              </svg>
-            </div>
-            <div>
-              <div class="device-name">${escapeHtml(d.nombre)}</div>
-              <div class="device-id">${escapeHtml(d.client_id)}</div>
-            </div>
-            <span class="badge ${isOnline ? 'badge-activo' : 'badge-finalizado'}" style="margin-left:auto;">
-              <span class="badge-dot"></span>
-              ${isOnline ? 'Online' : 'Offline'}
-            </span>
-          </div>
-          <div class="device-meta">
-            <div class="device-meta-item">
-              <span class="device-meta-label">IP</span>
-              <span class="device-meta-value">${d.ip || '—'}</span>
-            </div>
-            <div class="device-meta-item">
-              <span class="device-meta-label">RSSI</span>
-              <span class="device-meta-value">${d.rssi || '—'} dBm</span>
-            </div>
-            <div class="device-meta-item">
-              <span class="device-meta-label">Uptime</span>
-              <span class="device-meta-value">${formatUptime(d.ultimo_up || 0)}</span>
-            </div>
-            <div class="device-meta-item">
-              <span class="device-meta-label">Procesos</span>
-              <span class="device-meta-value">${d.total_procesos || 0}</span>
-            </div>
-          </div>
-        </div>`;
-    }).join('');
-  } catch (err) {
-    console.error('Error loading devices:', err);
-  }
-}
 
 // ============================================================
 //  ACTIVITY LOG
@@ -1220,17 +1151,25 @@ async function loadConfiguracion() {
 async function loadMQTTStatus() {
   try {
     const res = await fetch(`${API}/api/config/mqtt-status`);
+    if (!res.ok) throw new Error('Error de red cargando status MQTT');
+    
     const status = await res.json();
+    
+    if (status.error) throw new Error(status.error);
 
     document.getElementById('mqttStatusConnectionState').textContent = 
       status.connected ? '✅ Conectado' : '❌ Desconectado';
     document.getElementById('mqttStatusBroker').textContent = status.broker || '—';
     document.getElementById('mqttStatusPort').textContent = status.puerto || '—';
-    document.getElementById('mqttStatusTopics').textContent = 
-      `${status.topics.rpm} | ${status.topics.estado}`;
+    
+    const topicText = status.topics ? `${status.topics.rpm} | ${status.topics.estado}` : '— | —';
+    document.getElementById('mqttStatusTopics').textContent = topicText;
   } catch (err) {
     console.error('Error loading MQTT status:', err);
     document.getElementById('mqttStatusConnectionState').textContent = 'Error';
+    document.getElementById('mqttStatusBroker').textContent = '—';
+    document.getElementById('mqttStatusPort').textContent = '—';
+    document.getElementById('mqttStatusTopics').textContent = '— | —';
   }
 }
 
@@ -1304,8 +1243,12 @@ function initConfigurationEventListeners() {
 }
 
 function openBrokerForm(brokerId = null) {
-  const modal = document.getElementById('modalBrokerForm');
+  const overlay = document.getElementById('brokerOverlay');
   const title = document.getElementById('brokerFormTitle');
+  const form = document.getElementById('modalBrokerForm');
+
+  // Clear previous errors
+  showBrokerFormErrors([]);
 
   if (brokerId) {
     title.textContent = 'Editar Broker MQTT';
@@ -1320,34 +1263,71 @@ function openBrokerForm(brokerId = null) {
           document.getElementById('brokerPuerto').value = broker.puerto || 8883;
           document.getElementById('brokerProtocolo').value = broker.protocolo || 'mqtts';
           document.getElementById('brokerUsuario').value = broker.usuario || '';
-          document.getElementById('brokerContraseña').value = '';
+          document.getElementById('brokerContraseña').value = ''; // Never pre-fill password
           document.getElementById('brokerTopicRpm').value = broker.topic_rpm || 'rpm/datos';
           document.getElementById('brokerTopicEstado').value = broker.topic_estado || 'rpm/estado';
           document.getElementById('brokerDescripcion').value = broker.descripcion || '';
           document.getElementById('brokerVerificarCert').checked = broker.verificar_cert !== false;
-          document.getElementById('modalBrokerForm').dataset.brokerId = brokerId;
+          form.dataset.brokerId = brokerId;
         }
-        modal.style.display = 'flex';
+        overlay.classList.add('active');
       });
   } else {
     title.textContent = 'Agregar Nuevo Broker MQTT';
-    document.getElementById('brokerNombre').value = '';
-    document.getElementById('brokerServidor').value = '';
-    document.getElementById('brokerPuerto').value = 8883;
-    document.getElementById('brokerProtocolo').value = 'mqtts';
-    document.getElementById('brokerUsuario').value = '';
-    document.getElementById('brokerContraseña').value = '';
-    document.getElementById('brokerTopicRpm').value = 'rpm/datos';
-    document.getElementById('brokerTopicEstado').value = 'rpm/estado';
-    document.getElementById('brokerDescripcion').value = '';
-    document.getElementById('brokerVerificarCert').checked = true;
-    delete document.getElementById('modalBrokerForm').dataset.brokerId;
-    modal.style.display = 'flex';
+    
+    // Auto-fill form with active broker's details if they exist in DB, for convenience
+    fetch(`${API}/api/config/broker`)
+      .then(r => r.ok ? r.json() : null)
+      .then(activeBroker => {
+        document.getElementById('brokerNombre').value = ''; // Let users name it
+        document.getElementById('brokerServidor').value = activeBroker?.servidor || '';
+        document.getElementById('brokerPuerto').value = activeBroker?.puerto || 8883;
+        document.getElementById('brokerProtocolo').value = activeBroker?.protocolo || 'mqtts';
+        document.getElementById('brokerUsuario').value = activeBroker?.usuario || '';
+        document.getElementById('brokerContraseña').value = ''; // Never auto-fill passwords
+        document.getElementById('brokerTopicRpm').value = activeBroker?.topic_rpm || 'rpm/datos';
+        document.getElementById('brokerTopicEstado').value = activeBroker?.topic_estado || 'rpm/estado';
+        document.getElementById('brokerDescripcion').value = ''; // Clean description for new
+        document.getElementById('brokerVerificarCert').checked = activeBroker?.verificar_cert !== false;
+        
+        delete form.dataset.brokerId;
+        overlay.classList.add('active');
+      })
+      .catch(() => {
+        // Fallback to blank if fetching failed
+        document.getElementById('brokerNombre').value = '';
+        document.getElementById('brokerServidor').value = '';
+        document.getElementById('brokerPuerto').value = 8883;
+        document.getElementById('brokerProtocolo').value = 'mqtts';
+        document.getElementById('brokerUsuario').value = '';
+        document.getElementById('brokerContraseña').value = '';
+        document.getElementById('brokerTopicRpm').value = 'rpm/datos';
+        document.getElementById('brokerTopicEstado').value = 'rpm/estado';
+        document.getElementById('brokerDescripcion').value = '';
+        document.getElementById('brokerVerificarCert').checked = true;
+        
+        delete form.dataset.brokerId;
+        overlay.classList.add('active');
+      });
   }
 }
 
 function closeBrokerForm() {
-  document.getElementById('modalBrokerForm').style.display = 'none';
+  const overlay = document.getElementById('brokerOverlay');
+  if (overlay) overlay.classList.remove('active');
+  // Clear form fields and errors when closing
+  document.getElementById('brokerNombre').value = '';
+  document.getElementById('brokerServidor').value = '';
+  document.getElementById('brokerPuerto').value = 8883;
+  document.getElementById('brokerProtocolo').value = 'mqtts';
+  document.getElementById('brokerUsuario').value = '';
+  document.getElementById('brokerContraseña').value = '';
+  document.getElementById('brokerTopicRpm').value = 'rpm/datos';
+  document.getElementById('brokerTopicEstado').value = 'rpm/estado';
+  document.getElementById('brokerDescripcion').value = '';
+  document.getElementById('brokerVerificarCert').checked = true;
+  delete document.getElementById('modalBrokerForm').dataset.brokerId;
+  showBrokerFormErrors([]);
 }
 
 // Validación mejorada del formulario de broker
@@ -1366,7 +1346,9 @@ function validateBrokerForm() {
   if (!nombre) errors.push('El nombre del broker es requerido');
   if (!servidor) errors.push('El servidor es requerido');
   if (!usuario) errors.push('El usuario es requerido');
-  if (!contraseña) errors.push('La contraseña es requerida');
+  // Only require password for new brokers or if it's explicitly changed for existing ones
+  const isUpdate = document.getElementById('modalBrokerForm').dataset.brokerId !== undefined;
+  if (!isUpdate && !contraseña) errors.push('La contraseña es requerida para nuevos brokers');
   
   if (isNaN(puerto) || puerto < 1 || puerto > 65535) errors.push('Puerto inválido (debe estar entre 1 y 65535)');
   if (servidor.includes(' ')) errors.push('El servidor no puede contener espacios');
@@ -1453,7 +1435,7 @@ async function saveBroker() {
 
     // Solo incluir contraseña si se cambió (no está vacía)
     if (contraseña && contraseña.length > 0) {
-      brokerData.contraseña = contraseña;
+      brokerData.contrasena = contraseña;
     }
 
     const brokerIdAttr = document.getElementById('modalBrokerForm').dataset.brokerId;
@@ -1477,6 +1459,7 @@ async function saveBroker() {
       return;
     }
 
+    showAlert('success', '¡Éxito!', 'La configuración del Broker ha sido guardada satisfactoriamente.');
     closeBrokerForm();
     addLog('success', `Broker ${isUpdate ? 'actualizado' : 'agregado'} correctamente ✓`);
     // Actualizar estado del indicador MQTT después de cambiar broker
@@ -1500,14 +1483,15 @@ window.activateBroker = async (id) => {
     const data = await res.json();
 
     if (!res.ok) {
-      alert(data.error || 'Error activando broker');
+      showAlert('error', 'Error Activando Broker', data.error || 'Error desconocido');
       return;
     }
 
     addLog('success', 'Broker activado y reconectado');
+    showAlert('success', 'Broker Activado', 'El broker se ha activado y reconectado.');
     loadConfiguracion();
   } catch (err) {
-    alert('Error: ' + err.message);
+    showAlert('error', 'Error de Conexión', err.message);
   }
 };
 
@@ -1519,13 +1503,14 @@ window.deleteBroker = async (id, nombre) => {
     const data = await res.json();
 
     if (!res.ok) {
-      alert(data.error || 'Error eliminando broker');
+      showAlert('error', 'Error Eliminando Broker', data.error || 'Error desconocido');
       return;
     }
 
     addLog('success', 'Broker eliminado');
+    showAlert('success', 'Broker Eliminado', 'El broker se eliminó correctamente.');
     loadConfiguracion();
   } catch (err) {
-    alert('Error: ' + err.message);
+    showAlert('error', 'Error de Conexión', err.message);
   }
 };
