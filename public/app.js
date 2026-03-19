@@ -1,4 +1,46 @@
 // ============================================================
+//  ALERT MODAL SYSTEM (Fase 5)
+// ============================================================
+function showAlert(type, title, message) {
+  const overlay = document.getElementById('alertOverlay');
+  const iconWrapper = document.getElementById('alertIcon');
+  const titleEl = document.getElementById('alertTitle');
+  const msgEl = document.getElementById('alertMessage');
+  const btn = document.getElementById('btnAlertConfirm');
+
+  if (!overlay) return;
+
+  iconWrapper.className = 'alert-icon-wrapper mb-4 ' + `alert-${type}`;
+  
+  let iconHtml = '';
+  if (type === 'success') {
+    iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+  } else if (type === 'error') {
+    iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
+  } else {
+    iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
+  }
+  
+  iconWrapper.innerHTML = iconHtml;
+  titleEl.textContent = title;
+  msgEl.textContent = message;
+
+  overlay.classList.add('active');
+
+  const closeAlert = () => {
+    overlay.classList.remove('active');
+    btn.removeEventListener('click', closeAlert);
+  };
+
+  btn.onclick = closeAlert;
+}
+
+// Global Alert Override
+window.alert = function(msg) {
+  showAlert('info', 'Notificación', msg);
+};
+
+// ============================================================
 //  RPM IoT Monitor — Frontend Application
 // ============================================================
 
@@ -219,14 +261,29 @@ function updateConnectionStatus(online) {
 // ============================================================
 //  RPM DISPLAY UPDATE
 // ============================================================
+function triggerPulse(elementId) {
+  const el = document.getElementById(elementId);
+  if (el) {
+    el.classList.remove('data-pulse');
+    void el.offsetWidth; // trigger reflow to restart animation
+    el.classList.add('data-pulse');
+    setTimeout(() => el.classList.remove('data-pulse'), 450);
+  }
+}
+
 function updateRPMDisplay(data) {
   const rpm = data.rpm || 0;
   const pulsos = data.pulsos || 0;
 
   // Update stat cards
   document.getElementById('statRpm').textContent = rpm.toFixed(1);
+  triggerPulse('statRpm');
+
   document.getElementById('statPulsos').textContent = pulsos;
+  triggerPulse('statPulsos');
+
   document.getElementById('liveRpmValue').textContent = rpm.toFixed(0);
+  triggerPulse('liveRpmValue');
 
   // Update uptime
   if (data.up) {
@@ -467,7 +524,7 @@ async function createProceso() {
   const descripcion = document.getElementById('procDescripcion').value.trim();
 
   if (!nombre) {
-    alert('El nombre del proceso es obligatorio');
+    showAlert('error', 'Campo Requerido', 'El nombre del proceso es obligatorio');
     return;
   }
 
@@ -481,7 +538,7 @@ async function createProceso() {
     const data = await res.json();
 
     if (!res.ok) {
-      alert(data.error || 'Error creando proceso');
+      showAlert('error', 'No se pudo crear', data.error || 'Error interno del servidor');
       return;
     }
 
@@ -489,10 +546,11 @@ async function createProceso() {
     document.getElementById('procNombre').value = '';
     document.getElementById('procDescripcion').value = '';
 
+    showAlert('success', '¡Éxito!', `El proceso "${nombre}" ha sido creado e iniciado.`);
     addLog('success', `Proceso "${nombre}" creado exitosamente`);
     loadProcesos();
   } catch (err) {
-    alert('Error de conexión: ' + err.message);
+    showAlert('error', 'Error de Red', 'No se pudo conectar con el servidor: ' + err.message);
   }
 }
 
@@ -645,11 +703,25 @@ window.verHistorico = function(id) {
 //  HISTORICO
 // ============================================================
 function initHistorico() {
-  document.getElementById('btnLoadHist').addEventListener('click', () => {
-    const id = document.getElementById('histProcessSelect').value;
-    if (!id) { alert('Seleccione un proceso'); return; }
-    loadHistorico(id);
-  });
+  const selectProcess = document.getElementById('histProcessSelect');
+  const selectInterval = document.getElementById('histInterval');
+  const btnLoad = document.getElementById('btnLoadHist');
+
+  const triggerLoad = () => {
+    const id = selectProcess.value;
+    if (id) {
+      loadHistorico(id);
+    }
+  };
+
+  // Auto-load on change
+  selectProcess.addEventListener('change', triggerLoad);
+  selectInterval.addEventListener('change', triggerLoad);
+
+  // Manual refresh still works
+  if (btnLoad) {
+    btnLoad.addEventListener('click', triggerLoad);
+  }
 }
 
 async function loadProcesoSelect() {

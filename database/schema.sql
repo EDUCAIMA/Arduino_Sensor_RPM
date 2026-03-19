@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS mqtt_broker (
   servidor      VARCHAR(255) NOT NULL,
   puerto        INT NOT NULL DEFAULT 8883,
   usuario       VARCHAR(100) NOT NULL,
-  contraseña    VARCHAR(255) NOT NULL,
+  contrasena    VARCHAR(255) NOT NULL,
   protocolo     ENUM('mqtts', 'mqtt') NOT NULL DEFAULT 'mqtts',
   topic_rpm     VARCHAR(100) NOT NULL DEFAULT 'rpm/datos',
   topic_estado  VARCHAR(100) NOT NULL DEFAULT 'rpm/estado',

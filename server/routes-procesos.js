@@ -48,16 +48,21 @@ router.get('/:id', async (req, res) => {
 //  POST /api/procesos — crear nuevo
 // ──────────────────────────────────────
 router.post('/', async (req, res) => {
+  console.log('📥 Petición recibida: POST /api/procesos', req.body);
   try {
     const { nombre, descripcion, dispositivo_id } = req.body;
 
-    if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio' });
+    if (!nombre) {
+      console.warn('⚠️ Intento de creación sin nombre');
+      return res.status(400).json({ error: 'El nombre es obligatorio' });
+    }
 
     // Verificar que no haya otro proceso activo
     const [activos] = await db.execute(
       `SELECT id FROM procesos WHERE estado = 'activo'`
     );
     if (activos.length > 0) {
+      console.warn('⚠️ Ya hay un proceso activo:', activos[0].id);
       return res.status(409).json({
         error: 'Ya existe un proceso activo. Finalícelo primero.',
         procesoActivo: activos[0].id
@@ -69,28 +74,31 @@ router.post('/', async (req, res) => {
     if (!devId) {
       const [devices] = await db.execute('SELECT id FROM dispositivos LIMIT 1');
       if (devices.length === 0) {
-        // Crear dispositivo por defecto
+        console.log('🆕 No hay dispositivos, creando uno por defecto...');
         const [result] = await db.execute(
           `INSERT INTO dispositivos (client_id, nombre) VALUES ('RPM-DEFAULT', 'Sensor RPM Principal')`
         );
         devId = result.insertId;
+        console.log('✅ Dispositivo creado id:', devId);
       } else {
         devId = devices[0].id;
       }
     }
 
+    console.log('📝 Insertando proceso en db con dispositivo_id:', devId);
     const [result] = await db.execute(
       `INSERT INTO procesos (dispositivo_id, nombre, descripcion, fecha_inicio)
        VALUES (?, ?, ?, NOW())`,
       [devId, nombre, descripcion || '']
     );
 
+    console.log('✅ Proceso insertado correctamente id:', result.insertId);
     resetProcesoCache();
 
     const [newProc] = await db.execute('SELECT * FROM procesos WHERE id = ?', [result.insertId]);
     res.status(201).json(newProc[0]);
   } catch (err) {
-    console.error('Error creando proceso:', err);
+    console.error('❌ Error fatal creando proceso:', err);
     res.status(500).json({ error: err.message });
   }
 });

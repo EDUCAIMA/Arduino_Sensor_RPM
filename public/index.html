@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RPM IoT Monitor — Dashboard</title>
-  <meta name="description" content="Dashboard de monitoreo de RPM en tiempo real con IoT, MQTT y gráficos históricos.">
+  <title>Corhuila — RPM Monitor</title>
+  <meta name="description" content="Dashboard de monitoreo de RPM Corhuila en tiempo real con IoT.">
 
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -16,6 +16,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 
   <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/png" href="corhuila-logo.png">
 </head>
 <body>
   <!-- ============================================ -->
@@ -23,18 +24,11 @@
   <!-- ============================================ -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <div class="logo">
-        <div class="logo-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M12 6v6l4 2"/>
-          </svg>
+        <div class="logo-full">
+          <div class="logo-circle">
+            <img src="corhuila-logo.png" alt="Corhuila Logo">
+          </div>
         </div>
-        <div class="logo-text">
-          <span class="logo-title">RPM IoT</span>
-          <span class="logo-sub">Monitor v1.0</span>
-        </div>
-      </div>
     </div>
 
     <nav class="sidebar-nav">
@@ -107,7 +101,7 @@
       </button>
       <div class="top-bar-info">
         <h1 class="page-title" id="pageTitle">Dashboard</h1>
-        <span class="page-subtitle" id="pageSubtitle">Monitoreo en tiempo real</span>
+        <span class="page-subtitle" id="pageSubtitle">Corporación Universitaria del Huila — Monitoreo Real-time</span>
       </div>
       <div class="top-bar-actions">
         <div class="mqtt-status-indicator" id="mqttStatusIndicator" title="Estado de conexión MQTT">
@@ -322,7 +316,7 @@
             <option value="hour">Horas</option>
           </select>
         </div>
-        <button class="btn btn-primary" id="btnLoadHist">
+        <button class="btn btn-primary" id="btnLoadHist" style="display: none;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="1 4 1 10 7 10"/>
             <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
@@ -580,6 +574,20 @@
           </svg>
           <span id="brokerSaveText">Guardar Broker</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Alerta Genérica -->
+  <div class="modal-overlay" id="alertOverlay">
+    <div class="modal modal-sm" id="alertModal">
+      <div class="modal-body text-center" style="padding: 40px 32px;">
+        <div id="alertIcon" class="alert-icon-wrapper mb-4">
+          <!-- Icon will be injected by JS -->
+        </div>
+        <h3 id="alertTitle" class="mb-2">Título de Alerta</h3>
+        <p id="alertMessage" class="text-secondary mb-6">Mensaje detallado de la alerta.</p>
+        <button class="btn btn-primary btn-full" id="btnAlertConfirm">Entendido</button>
       </div>
     </div>
   </div>

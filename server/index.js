@@ -61,6 +61,14 @@ function broadcast(message) {
 // ============================================================
 //  Start
 // ============================================================
+// Error logging middleware
+app.use((err, req, res, next) => {
+  const logMsg = `[${new Date().toISOString()}] ${req.method} ${req.url} - ${err.stack}\n`;
+  require('fs').appendFileSync(path.join(__dirname, 'server-errors.log'), logMsg);
+  console.error(err.stack);
+  res.status(500).send('Algo salió mal!');
+});
+
 app.listen(PORT, () => {
   console.log(`
   ╔══════════════════════════════════════════╗

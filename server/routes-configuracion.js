@@ -33,7 +33,7 @@ router.get('/broker', async (req, res) => {
 
     // No retornar la contraseña
     const broker = rows[0];
-    delete broker.contraseña;
+    delete broker.contrasena;
     res.json(broker);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -55,7 +55,7 @@ router.get('/brokers', async (req, res) => {
 
     // No retornar contraseñas
     const brokers = rows.map(b => {
-      delete b.contraseña;
+      delete b.contrasena;
       return b;
     });
 
@@ -75,7 +75,7 @@ router.post('/broker', async (req, res) => {
       servidor,
       puerto,
       usuario,
-      contraseña,
+      contrasena,
       protocolo = 'mqtts',
       topic_rpm = 'rpm/datos',
       topic_estado = 'rpm/estado',
@@ -84,9 +84,9 @@ router.post('/broker', async (req, res) => {
       descripcion
     } = req.body;
 
-    if (!servidor || !usuario || !contraseña) {
+    if (!servidor || !usuario || !contrasena) {
       return res.status(400).json({ 
-        error: 'Servidor, usuario y contraseña son obligatorios' 
+        error: 'Servidor, usuario y contrasena son obligatorios' 
       });
     }
 
@@ -97,7 +97,7 @@ router.post('/broker', async (req, res) => {
 
     const [result] = await db.execute(
       `INSERT INTO mqtt_broker 
-       (nombre, servidor, puerto, usuario, contraseña, protocolo, 
+       (nombre, servidor, puerto, usuario, contrasena, protocolo, 
         topic_rpm, topic_estado, activo, verificar_cert, descripcion)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -105,7 +105,7 @@ router.post('/broker', async (req, res) => {
         servidor,
         puerto || 8883,
         usuario,
-        contraseña,
+        contrasena,
         protocolo,
         topic_rpm,
         topic_estado,
@@ -126,7 +126,7 @@ router.post('/broker', async (req, res) => {
     );
 
     const broker = newBroker[0];
-    delete broker.contraseña;
+    delete broker.contrasena;
     res.status(201).json(broker);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -143,7 +143,7 @@ router.put('/broker/:id', async (req, res) => {
       servidor,
       puerto,
       usuario,
-      contraseña,
+      contrasena,
       protocolo,
       topic_rpm,
       topic_estado,
@@ -167,7 +167,7 @@ router.put('/broker/:id', async (req, res) => {
       servidor: servidor || current[0].servidor,
       puerto: puerto !== undefined ? puerto : current[0].puerto,
       usuario: usuario || current[0].usuario,
-      contraseña: contraseña || current[0].contraseña,
+      contrasena: contrasena || current[0].contrasena,
       protocolo: protocolo || current[0].protocolo,
       topic_rpm: topic_rpm || current[0].topic_rpm,
       topic_estado: topic_estado || current[0].topic_estado,
@@ -189,7 +189,7 @@ router.put('/broker/:id', async (req, res) => {
     await db.execute(
       `UPDATE mqtt_broker SET
        nombre = ?, servidor = ?, puerto = ?, usuario = ?, 
-       contraseña = ?, protocolo = ?, topic_rpm = ?, topic_estado = ?,
+       contrasena = ?, protocolo = ?, topic_rpm = ?, topic_estado = ?,
        verificar_cert = ?, descripcion = ?, activo = ?
        WHERE id = ?`,
       [
@@ -197,7 +197,7 @@ router.put('/broker/:id', async (req, res) => {
         updateData.servidor,
         updateData.puerto,
         updateData.usuario,
-        updateData.contraseña,
+        updateData.contrasena,
         updateData.protocolo,
         updateData.topic_rpm,
         updateData.topic_estado,
@@ -219,7 +219,7 @@ router.put('/broker/:id', async (req, res) => {
     );
 
     const broker = updated[0];
-    delete broker.contraseña;
+    delete broker.contrasena;
     res.json(broker);
   } catch (err) {
     res.status(500).json({ error: err.message });
