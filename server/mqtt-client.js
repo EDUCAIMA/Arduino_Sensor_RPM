@@ -209,6 +209,12 @@ async function handleRPM(data) {
     [data.rpm || 0, data.rpm || 0, data.rpm || 0, data.rpm || 0, procesoActivo.id]
   );
 
+  // Actualizar último contacto del dispositivo siempre que lleguen datos
+  await db.execute(
+    'UPDATE dispositivos SET ultimo_contacto = NOW() WHERE id = ?',
+    [procesoActivo.dispositivo_id]
+  );
+
   // Broadcast en tiempo real via WebSocket
   if (wsBroadcast) {
     wsBroadcast(JSON.stringify({
@@ -224,12 +230,14 @@ async function handleRPM(data) {
 //  Manejar estado del dispositivo
 // ============================================================
 async function handleStatus(data) {
-  // Actualizar dispositivo
+  const clientId = data.id || 'RPM-DEFAULT';
+  console.log(`📡 Recibido estado de: ${clientId} (RSSI: ${data.rssi})`);
+
+  // Actualizar dispositivo por client_id dinámico (más seguro)
   await db.execute(
     `UPDATE dispositivos SET ip = ?, rssi = ?, ultimo_up = ?, ultimo_contacto = NOW()
-     WHERE client_id LIKE 'RPM-%'
-     ORDER BY id DESC LIMIT 1`,
-    [data.ip || '', data.rssi || 0, data.up || 0]
+     WHERE client_id = ?`,
+    [data.ip || '', data.rssi || 0, data.up || 0, clientId]
   );
 
   if (wsBroadcast) {

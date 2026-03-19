@@ -291,8 +291,8 @@ function updateRPMDisplay(data) {
     document.getElementById('statProceso').textContent = `#${data.procesoId}`;
   }
 
-  // Update gauge
-  drawGauge(rpm);
+  // Update target gauge value for smooth animation
+  window.targetGaugeRPM = rpm;
 
   // Update realtime chart
   addRealtimeData(rpm, data.timestamp || new Date().toISOString());
@@ -326,15 +326,26 @@ function updateDeviceStatus(data) {
 }
 
 // ============================================================
-//  RPM GAUGE (Canvas)
-// ============================================================
 let gaugeCtx;
 const GAUGE_MAX = 6000;
+window.currentGaugeRPM = 0;
+window.targetGaugeRPM = 0;
 
 function initGauge() {
   const canvas = document.getElementById('gaugeCanvas');
   gaugeCtx = canvas.getContext('2d');
-  drawGauge(0);
+  
+  // Iniciar loop de animación fluida
+  function animate() {
+    const diff = window.targetGaugeRPM - window.currentGaugeRPM;
+    if (Math.abs(diff) > 0.05) {
+      window.currentGaugeRPM += diff * 0.12; // Velocidad de suavizado
+      drawGauge(window.currentGaugeRPM);
+    }
+    requestAnimationFrame(animate);
+  }
+  
+  animate();
 }
 
 function drawGauge(rpm) {
@@ -342,71 +353,137 @@ function drawGauge(rpm) {
   const w = canvas.width;
   const h = canvas.height;
   const cx = w / 2;
-  const cy = h - 20;
-  const r = Math.min(w, h) - 40;
+  const cy = h - 25;
+  const r = Math.min(w, h) * 0.72 - 20;
 
   gaugeCtx.clearRect(0, 0, w, h);
 
-  const startAngle = Math.PI;
-  const endAngle = 2 * Math.PI;
-  const valueAngle = startAngle + (Math.min(rpm, GAUGE_MAX) / GAUGE_MAX) * Math.PI;
+  const startAngle = 0.82 * Math.PI;
+  const endAngle = 2.18 * Math.PI;
+  const totalAngle = endAngle - startAngle;
+  const rpmRatio = Math.min(rpm, GAUGE_MAX) / GAUGE_MAX;
+  const valueAngle = startAngle + rpmRatio * totalAngle;
 
-  // Background arc
+  // 1. Fondo de Escala (Arcos concéntricos)
   gaugeCtx.beginPath();
   gaugeCtx.arc(cx, cy, r, startAngle, endAngle);
-  gaugeCtx.lineWidth = 22;
-  gaugeCtx.strokeStyle = 'rgba(255,255,255,0.05)';
-  gaugeCtx.lineCap = 'round';
+  gaugeCtx.lineWidth = 14;
+  gaugeCtx.strokeStyle = 'rgba(0, 0, 0, 0.08)'; // Sombra base
   gaugeCtx.stroke();
 
-  // Value arc with gradient
-  if (rpm > 0) {
-    const gradient = gaugeCtx.createLinearGradient(0, 0, w, 0);
-    gradient.addColorStop(0, '#22d3ee');
-    gradient.addColorStop(0.5, '#6366f1');
-    gradient.addColorStop(1, '#ef4444');
+  gaugeCtx.beginPath();
+  gaugeCtx.arc(cx, cy, r, startAngle, endAngle);
+  gaugeCtx.lineWidth = 8;
+  gaugeCtx.strokeStyle = 'rgba(255, 255, 255, 0.03)'; // Surco
+  gaugeCtx.stroke();
 
-    gaugeCtx.beginPath();
-    gaugeCtx.arc(cx, cy, r, startAngle, valueAngle);
-    gaugeCtx.lineWidth = 22;
-    gaugeCtx.strokeStyle = gradient;
-    gaugeCtx.lineCap = 'round';
-    gaugeCtx.stroke();
+  // 2. Zona de Peligro (Arco sutil)
+  const dangerStart = startAngle + (5000 / GAUGE_MAX) * totalAngle;
+  gaugeCtx.beginPath();
+  gaugeCtx.arc(cx, cy, r + 8, dangerStart, endAngle);
+  gaugeCtx.lineWidth = 3;
+  gaugeCtx.strokeStyle = 'rgba(239, 68, 68, 0.2)';
+  gaugeCtx.stroke();
 
-    // Glow effect
-    gaugeCtx.beginPath();
-    gaugeCtx.arc(cx, cy, r, startAngle, valueAngle);
-    gaugeCtx.lineWidth = 28;
-    gaugeCtx.strokeStyle = 'rgba(99, 102, 241, 0.15)';
-    gaugeCtx.stroke();
-  }
-
-  // Tick marks
-  for (let i = 0; i <= 6; i++) {
-    const angle = startAngle + (i / 6) * Math.PI;
-    const x1 = cx + (r + 16) * Math.cos(angle);
-    const y1 = cy + (r + 16) * Math.sin(angle);
-    const x2 = cx + (r + 8) * Math.cos(angle);
-    const y2 = cy + (r + 8) * Math.sin(angle);
+  // 3. Ticks y Escala Mejorada
+  for (let i = 0; i <= 12; i++) {
+    const tickRpm = i * 500;
+    const angle = startAngle + (tickRpm / GAUGE_MAX) * totalAngle;
+    
+    // Ticks principales cada 1000, secundarios cada 500
+    const isMajor = i % 2 === 0;
+    const tLen = isMajor ? 14 : 7;
+    const x1 = cx + (r - 2) * Math.cos(angle);
+    const y1 = cy + (r - 2) * Math.sin(angle);
+    const x2 = cx + (r - 2 - tLen) * Math.cos(angle);
+    const y2 = cy + (r - 2 - tLen) * Math.sin(angle);
 
     gaugeCtx.beginPath();
     gaugeCtx.moveTo(x1, y1);
     gaugeCtx.lineTo(x2, y2);
-    gaugeCtx.lineWidth = 2;
-    gaugeCtx.strokeStyle = 'rgba(255,255,255,0.2)';
+    gaugeCtx.lineWidth = isMajor ? 2.5 : 1.2;
+    gaugeCtx.strokeStyle = tickRpm >= 5000 ? 'rgba(239, 68, 68, 0.6)' : 'rgba(0, 0, 0, 0.2)';
     gaugeCtx.stroke();
 
-    // Labels
-    const lx = cx + (r + 30) * Math.cos(angle);
-    const ly = cy + (r + 30) * Math.sin(angle);
-    gaugeCtx.fillStyle = 'rgba(255,255,255,0.3)';
-    gaugeCtx.font = '11px "JetBrains Mono", monospace';
-    gaugeCtx.textAlign = 'center';
-    gaugeCtx.fillText(`${i * 1000}`, lx, ly);
+    // Labels cada 1000
+    if (isMajor) {
+      const lx = cx + (r - 35) * Math.cos(angle);
+      const ly = cy + (r - 35) * Math.sin(angle);
+      gaugeCtx.fillStyle = tickRpm >= 5000 ? 'rgba(239, 68, 68, 0.8)' : 'rgba(0, 0, 0, 0.5)';
+      gaugeCtx.font = `bold 11px var(--font-mono)`;
+      gaugeCtx.textAlign = 'center';
+      gaugeCtx.textBaseline = 'middle';
+      gaugeCtx.fillText(`${tickRpm / 1000}`, lx, ly);
+    }
   }
 
-  // Update text
-  document.getElementById('gaugeValue').textContent = rpm.toFixed(0);
+  // 4. Arco de Valor con Brillo
+  if (rpm > 10) {
+    const gradient = gaugeCtx.createLinearGradient(cx - r, 0, cx + r, 0);
+    gradient.addColorStop(0, '#00843d'); // Verde Corhuila
+    gradient.addColorStop(0.7, '#f7941e'); // Naranja Corhuila
+    gradient.addColorStop(1, '#ef4444');    // Rojo Peligro
+
+    gaugeCtx.beginPath();
+    gaugeCtx.arc(cx, cy, r, startAngle, valueAngle);
+    gaugeCtx.lineWidth = 10;
+    gaugeCtx.strokeStyle = gradient;
+    gaugeCtx.lineCap = 'round';
+    
+    // Sombra de brillo para el arco
+    gaugeCtx.shadowBlur = rpm > 4500 ? 12 : 5;
+    gaugeCtx.shadowColor = rpm > 5000 ? 'rgba(239, 68, 68, 0.6)' : 'rgba(0, 132, 61, 0.4)';
+    gaugeCtx.stroke();
+    gaugeCtx.shadowBlur = 0;
+  }
+
+  // 5. Aguja Pro (Estilo deportivo)
+  const nLen = r + 2;
+  const nx = cx + nLen * Math.cos(valueAngle);
+  const ny = cy + nLen * Math.sin(valueAngle);
+
+  // Cuerpo de la aguja con gradiente
+  gaugeCtx.beginPath();
+  const needleGrad = gaugeCtx.createLinearGradient(cx, cy, nx, ny);
+  needleGrad.addColorStop(0, '#1a1f35');
+  needleGrad.addColorStop(1, rpm > 5000 ? '#ef4444' : '#00843d');
+  
+  gaugeCtx.lineWidth = 4;
+  gaugeCtx.lineCap = 'round';
+  gaugeCtx.strokeStyle = needleGrad;
+  gaugeCtx.moveTo(cx, cy);
+  gaugeCtx.lineTo(nx, ny);
+  gaugeCtx.stroke();
+
+  // Centro de Aguja (Estilo eje metálico)
+  const hubRadius = 10;
+  gaugeCtx.beginPath();
+  gaugeCtx.arc(cx, cy, hubRadius, 0, 2 * Math.PI);
+  const hubGrad = gaugeCtx.createRadialGradient(cx-2, cy-2, 1, cx, cy, hubRadius);
+  hubGrad.addColorStop(0, '#4a5568');
+  hubGrad.addColorStop(1, '#1a1f35');
+  gaugeCtx.fillStyle = hubGrad;
+  gaugeCtx.fill();
+  gaugeCtx.strokeStyle = 'rgba(255,255,255,0.1)';
+  gaugeCtx.lineWidth = 1;
+  gaugeCtx.stroke();
+
+  // Punto central brillante
+  gaugeCtx.beginPath();
+  gaugeCtx.arc(cx, cy, 2.5, 0, 2 * Math.PI);
+  gaugeCtx.fillStyle = '#ffffff';
+  gaugeCtx.shadowBlur = 5;
+  gaugeCtx.shadowColor = 'white';
+  gaugeCtx.fill();
+  gaugeCtx.shadowBlur = 0;
+
+  // 6. Actualizar valor digital inferior
+  const valEl = document.getElementById('gaugeValue');
+  if (valEl) {
+    valEl.textContent = rpm.toFixed(0);
+    valEl.style.color = rpm > 5000 ? 'var(--red)' : 'var(--corhuila-green)';
+    valEl.style.textShadow = rpm > 5000 ? '0 0 10px rgba(239, 68, 68, 0.3)' : 'none';
+  }
 }
 
 // ============================================================
@@ -1309,7 +1386,14 @@ async function loadDashboardDevice() {
     container.innerHTML = `
       <div class="sensor-info" style="border-radius: 8px; border: 1px solid ${isActive ? 'var(--green)' : 'var(--border)'}; background: ${isActive ? 'rgba(16, 185, 129, 0.05)' : 'rgba(255, 255, 255, 0.02)'}; padding: 16px;">
         <div class="sensor-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <div class="sensor-name" style="font-weight: 600; font-size: 14px;">${escapeHtml(device.nombre)}</div>
+          <div class="sensor-name" style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 32px; height: 32px; background: ${isActive ? 'var(--green-glow)' : 'var(--bg-elevated)'}; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: ${isActive ? 'var(--green)' : 'var(--text-muted)'};">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+              </svg>
+            </div>
+            <div style="font-weight: 600; font-size: 14px;">${escapeHtml(device.nombre)}</div>
+          </div>
           <div class="sensor-status ${isActive ? 'online' : 'offline'}" style="display: flex; align-items: center; gap: 6px;">
             <span class="status-dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${isActive ? 'var(--green)' : 'var(--text-muted)'}; box-shadow: ${isActive ? '0 0 8px rgba(16, 185, 129, 0.6)' : 'none'}; animation: ${isActive ? 'pulse-mqtt 2s infinite' : 'none'};"></span>
             <span style="font-weight: 600; color: ${isActive ? 'var(--green)' : 'var(--text-muted)'}; font-size: 11px; text-transform: uppercase;">
@@ -1327,8 +1411,10 @@ async function loadDashboardDevice() {
             <span class="sensor-meta-value">${device.ip || '—'}</span>
           </div>
           <div class="sensor-meta-item">
-            <span class="sensor-meta-label">RSSI (Señal)</span>
-            <span class="sensor-meta-value">${device.rssi || '—'} dBm</span>
+            <span class="sensor-meta-label">Calidad de Señal</span>
+            <span class="sensor-meta-value" style="display: flex; align-items: center;">
+              ${getSignalIndicatorHTML(device.rssi)}
+            </span>
           </div>
           <div class="sensor-meta-item">
             <span class="sensor-meta-label">Último Contacto</span>
@@ -1423,6 +1509,33 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+/**
+ * Retorna el HTML de barras de señal basado en el valor RSSI
+ * @param {number} rssi 
+ */
+function getSignalIndicatorHTML(rssi) {
+  if (!rssi) return '<span class="text-muted">Desconocido</span>';
+  
+  let level = 'excellent';
+  let label = 'Excelente';
+  
+  if (rssi <= -90) { level = 'poor'; label = 'Deficiente'; }
+  else if (rssi <= -80) { level = 'fair'; label = 'Regular'; }
+  else if (rssi <= -70) { level = 'good'; label = 'Buena'; }
+  
+  return `
+    <div class="signal-wrapper" title="RSSI: ${rssi} dBm (${label})">
+      <div class="signal-indicator ${level}">
+        <div class="signal-bar"></div>
+        <div class="signal-bar"></div>
+        <div class="signal-bar"></div>
+        <div class="signal-bar"></div>
+      </div>
+      <span class="signal-label" style="font-size: 10px; color: var(--text-muted); font-weight: 600; margin-left: 6px;">${rssi} dBm</span>
+    </div>
+  `;
 }
 
 // ============================================================
