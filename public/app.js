@@ -823,6 +823,11 @@ function initHistorico() {
   if (btnPdf) {
     btnPdf.onclick = () => exportCurrentHistoricoPdf();
   }
+
+  const btnCsv = document.getElementById('btnExportCsv');
+  if (btnCsv) {
+    btnCsv.onclick = () => exportCurrentHistoricoCsv();
+  }
 }
 
 async function loadProcesoSelect() {
@@ -882,8 +887,10 @@ async function loadHistorico(procesoId) {
     renderHistBarChart(chartData);
     renderHistDoughnutChart(chartData);
 
-    // Show PDF button
+    // Show export buttons
     document.getElementById('btnExportPdf').style.display = 'inline-flex';
+    document.getElementById('btnExportCsv').style.display = 'inline-flex';
+    state.currentHistData = chartData; // Save dataset for CSV export
   } catch (err) {
     console.error('Error loading historico:', err);
     alert('Error cargando datos históricos');
@@ -1132,6 +1139,50 @@ window.exportPdfProceso = async function(id) {
     setTimeout(() => clearInterval(checkLoaded), 10000);
   }, 200);
 };
+
+async function exportCurrentHistoricoCsv() {
+  const data = state.currentHistData;
+  if (!data || data.length === 0) {
+    showAlert('warning', 'Sin datos', 'No hay datos cargados para exportar.');
+    return;
+  }
+
+  const procId = document.getElementById('histProcessSelect').value;
+  const select = document.getElementById('histProcessSelect');
+  const procName = select.options[select.selectedIndex].text.replace(/[^a-z0-9]/gi, '_');
+
+  // CSV Headers
+  const headers = ['Periodo', 'RPM_Min', 'RPM_Avg', 'RPM_Max', 'Lecturas'];
+  
+  // Rows construction
+  const csvRows = [];
+  csvRows.push(headers.join(','));
+
+  data.forEach(row => {
+    const csvRow = [
+      row.periodo,
+      row.rpm_min || 0,
+      row.rpm_avg || 0,
+      row.rpm_max || 0,
+      row.lecturas_count || row.count || 1
+    ];
+    csvRows.push(csvRow.join(','));
+  });
+
+  const csvContent = csvRows.join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `Datos_RPM_Proceso_${procId}_${new Date().toISOString().split('T')[0]}.csv`);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  addLog('success', `Datos históricos exportados a CSV para proceso #${procId}`);
+}
 
 async function exportCurrentHistoricoPdf() {
   const { jsPDF } = window.jspdf;

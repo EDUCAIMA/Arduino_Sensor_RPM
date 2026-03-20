@@ -794,6 +794,16 @@ body {
   box-shadow: 0 4px 12px rgba(16,185,129,0.25);
 }
 .btn-success:hover { background: #059669; transform: translateY(-1px); }
+.btn-csv {
+  background: linear-gradient(135deg, #0d9488, #0f766e);
+  color: white;
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25);
+}
+.btn-csv:hover {
+  background: linear-gradient(135deg, #0f766e, #115e59);
+  box-shadow: 0 6px 16px rgba(13, 148, 136, 0.35);
+  transform: translateY(-1px);
+}
 
 .btn-ghost {
   background: transparent;
